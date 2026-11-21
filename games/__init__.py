@@ -17,6 +17,7 @@ from games.cave import Cave
 from games.keycatch import KeyCatch
 from games.mouse import JoyMouse
 from games.race import Race
+from games.visualiser import Visualiser
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -53,6 +54,7 @@ CATALOG = [
     computer("beats", Beats),
     computer("binterm", BinaryTerminal),
     computer("mouse", JoyMouse),
+    computer("visualiser", Visualiser),
     Entry("fifths", "Fifths", "A tiny app that runs on the keyboard itself: every key plays with a fifth on top, "
           "pads glow with pressure, joystick and knobs on screen.", "Keys: play (MIDI out)   PROG SELECT: leave",
           "keyboard", fifths_preview, binary=os.path.join(HERE, "programs", "demo.bin")),

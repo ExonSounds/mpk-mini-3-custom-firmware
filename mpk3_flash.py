@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Flash an MPK mini 3 (AT32 variant) through Akai's stock USB HID bootloader.
 
 Protocol is from Akai's updater v1.26; see firmware/NOTES.md.

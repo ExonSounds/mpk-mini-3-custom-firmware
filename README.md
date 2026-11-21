@@ -50,6 +50,9 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
     eight bits per character, PAD 3 deletes, PAD 4 Enter).
   - **Joystick Mouse** — the joystick moves this computer's mouse pointer, PAD 8 left-clicks, PAD 4 right-clicks
     (a virtual mouse via `/dev/uinput`, which your user must be able to write).
+  - **Audio Visualiser** — whatever this computer plays, on the keyboard's screen: spectrum (PAD 1), waveform with
+    0 dBFS at the edges (PAD 2), waterfall (PAD 3); PAD 4 toggles pitch follow (the waveform shows two cycles of
+    the detected note and names it); knob 1 sets sensitivity / zoom.
   - **Fifths** — a RAM program that runs on the keyboard itself (`programs/demo.c`).
 
 Not done yet: saving more than one setup (presets), flashing from the GUI.
@@ -67,6 +70,7 @@ a different image layout and is not supported.
 
 - `clang` and `lld` (Arch: `sudo pacman -S clang lld`), `python3`, `curl`, `unzip`
 - For the GUI: Tk (Arch: `sudo pacman -S tk`)
+- For the Audio Visualiser: numpy and PipeWire or PulseAudio (`parec` or `pw-record`)
 - Permission to open the keyboard's USB HID port:
 
   ```bash
@@ -112,8 +116,8 @@ keyboard (recovery then needs SWD). Programs that only use the API can't.
 The game market, or one game straight from the terminal (needs `make -C programs` first):
 
 ```bash
-python3 mpk3_market.py
-python3 -m games race                 # or cave | keycatch | beats | binterm | mouse
+./mpk3_market.py                      # or double-click it in the file manager
+python3 -m games race                 # or cave | keycatch | beats | binterm | mouse | visualiser
 ```
 
 A game is a class with `step(controls, dt)` and `render(screen)` in `games/`, listed in `games/__init__.py`

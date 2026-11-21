@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Configure the MPK mini 3 *custom* firmware over USB-MIDI SysEx (protocol: fw/cfg.h).
 
 usage: python3 mpk3_cfg.py info | get | set KEY=VALUE ... | save | defaults | run PROGRAM.bin

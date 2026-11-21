@@ -17,6 +17,8 @@ from games.cave import Cave
 from games.keycatch import ZONE, KeyCatch
 from games.mouse import BTN_LEFT, BTN_RIGHT, TOP_SPEED, JoyMouse, NoMouse, VirtualMouse, speed
 from games.race import CAR_X, CAR_Y, GRASS, LAPS, TARMAC, Race, build_world
+from games.visualiser import EDGES, N, RATE, Visualiser, note_name
+import numpy as np
 from mpk3_cfg import PROG_MSG, image_pixel
 from mpk3_market import Arcade
 from mpk3_remote import Controls, Screen, idle_controls, pack7, parse_controls, pressed
@@ -190,7 +192,7 @@ class GamesTest(unittest.TestCase):
             s = Screen()
             e.preview(s)
             self.assertTrue(any(s.fb), e.key)
-            if e.key in ("binterm", "mouse"):              # would open a terminal / make a mouse: tested below
+            if e.key in ("binterm", "mouse", "visualiser"):  # open a terminal / mouse / recorder: tested below
                 continue
             if e.kind == "computer":
                 g, scr = e.make(), Screen()
@@ -286,6 +288,107 @@ class JoyMouseTest(unittest.TestCase):
         time.sleep(0.2)
         with open("/proc/bus/input/devices") as f:
             self.assertNotIn("MPK mini 3 joystick mouse", f.read())
+
+
+class VisualiserTest(unittest.TestCase):
+    def tone(self, freq, seconds=0.1, amp=0.5):
+        t = np.arange(int(RATE * seconds)) / RATE
+        return (np.sin(2 * np.pi * freq * t) * amp * 32767).astype("<i2").tobytes()
+
+    def test_spectrum_finds_the_tone(self):
+        g = Visualiser(capture=False)
+        data = self.tone(1000)
+        g.feed(data[:1001])                                    # odd byte counts are carried over
+        g.feed(data[1001:])
+        g.step(idle_controls(), 1 / 60)
+        loudest = int(np.argmax(g.level))
+        self.assertTrue(EDGES[loudest] <= 1000 * 1.1 and EDGES[loudest + 1] >= 1000 / 1.1)
+        self.assertLess(g.level[0], g.level[loudest] / 2)
+        quieter = Visualiser(capture=False)
+        quieter.feed(data)
+        quieter.step(idle_controls(knobs=(20,) + (64,) * 7), 1 / 60)  # knob 1 down: less sensitive
+        self.assertLess(quieter.level[loudest], g.level[loudest])
+
+    def test_waveform_full_scale_touches_the_edges(self):
+        g = Visualiser(capture=False)
+        g.feed(self.tone(200, amp=1.0))
+        g.step(idle_controls(pads=(0, 80) + (0,) * 6), 1 / 60)  # knob 1 centred: edges = 0 dBFS
+        s = Screen()
+        g.render(s)
+        self.assertTrue(any(image_pixel(s.fb, x, 0) for x in range(128)))
+        self.assertTrue(any(image_pixel(s.fb, x, 31) for x in range(128)))
+
+        def rows(g, knob):
+            g.step(idle_controls(knobs=(knob,) + (64,) * 7), 1 / 60)
+            note = g.note
+            g.note_t = 0                                       # no label over the picture
+            s = Screen()
+            g.render(s)
+            lit = [y for y in range(32) if any(image_pixel(s.fb, x, y) for x in range(128))]
+            return lit[0], lit[-1], note
+        half = Visualiser(capture=False)                       # a -6 dB tone
+        half.feed(self.tone(200, amp=0.5))
+        half.step(idle_controls(pads=(0, 80) + (0,) * 6), 1 / 60)
+        top, bottom, _ = rows(half, 64)
+        self.assertTrue(6 <= top <= 9 and 22 <= bottom <= 25, (top, bottom))  # centred: half the height
+        top, bottom, note = rows(half, 64 + 15)                # knob up 6 dB: zoomed to the edges
+        self.assertEqual((top, bottom, note), (0, 31, "EDGE -6 DB"))
+        top, bottom, _ = rows(half, 64 - 15)                   # knob down 6 dB: a quarter of the height
+        self.assertTrue(10 <= top <= 13 and 18 <= bottom <= 21, (top, bottom))
+
+    def test_pitch_follow_shows_two_cycles(self):
+        pad4 = idle_controls(pads=(0, 0, 0, 80) + (0,) * 4)
+        for freq in (110, 330, 880):
+            g = Visualiser(capture=False)
+            g.feed(self.tone(freq, amp=1.0))
+            g.step(pad4, 1 / 60)                               # PAD 4: follow on (and the waveform view)
+            self.assertEqual((g.follow, g.mode, g.note), (True, 1, "PITCH FOLLOW ON"))
+            self.assertAlmostEqual(RATE / g.period, freq, delta=freq * 0.01)
+            g.note_t = 0
+            s = Screen()
+            g.render(s)
+            top = [image_pixel(s.fb, x, 0) for x in range(128)]
+            peaks = sum(1 for x in range(1, 128) if top[x] and not top[x - 1])
+            self.assertEqual(peaks, 2, freq)                   # exactly two cycles, whatever the pitch
+        g.feed((np.random.default_rng(2).normal(0, 0.3, N) * 32767).astype("<i2").tobytes())
+        g.step(idle_controls(), 1 / 60)                        # (PAD 4 let go)
+        self.assertIsNone(g.period)                            # noise: no pitch, the normal 23 ms view
+        g.render(Screen())
+        g.step(pad4, 1 / 60)                                   # pressed again: off
+        self.assertEqual((g.follow, g.note), (False, "PITCH FOLLOW OFF"))
+
+    def test_note_names_match_the_keyboard(self):
+        self.assertEqual(note_name(RATE / 261.63), "C3")       # middle C is C3 here, like the pad notes
+        self.assertEqual(note_name(RATE / 440), "A3")
+
+    def test_views_and_silence(self):
+        g = Visualiser(capture=False)
+        for p in range(3):
+            pads = [0] * 8
+            pads[p] = 80
+            g.feed(self.tone(300))
+            g.step(idle_controls(pads=tuple(pads)), 1 / 60)
+            g.step(idle_controls(), 1 / 60)
+            self.assertEqual(g.mode, p)
+            s = Screen()
+            g.render(s)
+            self.assertTrue(any(s.fb), p)
+        g.feed(bytes(2 * N))
+        for _ in range(150):                                   # 2.5 s of silence
+            g.step(idle_controls(), 1 / 60)
+        self.assertGreater(g.quiet, 2)
+        s = Screen()
+        g.render(s)
+        self.assertTrue(any(s.fb))                             # the "play some audio" hint
+
+    @unittest.skipUnless(shutil.which("parec") or shutil.which("pw-record"), "no audio recorder")
+    def test_records_from_this_computer(self):
+        g = Visualiser()
+        time.sleep(0.5)
+        g.step(idle_controls(), 1 / 60)
+        proc = g.proc
+        g.close()
+        self.assertIsNotNone(proc.returncode)                  # the recorder is gone again
 
 
 class FakeRemote:

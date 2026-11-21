@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """MPK Game Market: pick a game and it is loaded onto the keyboard, replacing the one that was there.
 
 Games that run on this computer use the keyboard as screen and controller (programs/remote.bin); keyboard apps are
