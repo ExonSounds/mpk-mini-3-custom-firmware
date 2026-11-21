@@ -1,0 +1,3 @@
+# Lets the logged-in user open Akai HID devices (MPK mini 3 normal + update mode) for mpk3_flash.py.
+# Must sort before 73-seat-late.rules so uaccess applies.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="09e8", TAG+="uaccess"

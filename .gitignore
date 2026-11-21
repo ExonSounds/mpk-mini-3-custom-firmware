@@ -1,0 +1,11 @@
+# Akai's firmware is copyrighted: fetch it with firmware/get_stock_firmware.sh, never commit it.
+firmware/stock_v1.26/
+# Built images contain the stock bootloader region, so they can't be shared either.
+fw/*.bin
+fw/*.app
+fw/*.elf
+fw/*.o
+fw/test_keys
+# Personal program dumps made by mpk3_tui.py
+backups/
+__pycache__/
