@@ -41,6 +41,8 @@ static void update_leds(void) {
 
 void ui_pad_led(int pad, int on) { level[LED_PAD0 + pad] = on ? FULL : 0; }
 
+volatile uint8_t ui_leds_off;
+
 void ui_led_tick(void) {  /* one PWM slot every 4 ticks: 32 slots = 6.4 ms period */
     static uint8_t div, slot, started;
     static uint32_t shown = ~0u;
@@ -50,7 +52,7 @@ void ui_led_tick(void) {  /* one PWM slot every 4 ticks: 32 slots = 6.4 ms perio
     slot = (slot + 1) & 31;
     level[LED_TAP_TEMPO] = seq_beat_led ? DIM : 0;  /* blinks on the beat */
     uint32_t bits = 0;
-    for (int i = 0; i < 24; i++) if (level[i] > slot) bits |= 1u << i;
+    if (!ui_leds_off) for (int i = 0; i < 24; i++) if (level[i] > slot) bits |= 1u << i;
     if (bits != shown) { led_out(bits); shown = bits; }
 }
 

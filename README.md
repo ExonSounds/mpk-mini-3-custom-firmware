@@ -9,7 +9,7 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
 > **Not affiliated with Akai Professional or inMusic.** "Akai" and "MPK" are their trademarks. Flashing custom
 > firmware may void your warranty. Use at your own risk; see the [licence](LICENSE).
 
-## Features (firmware v9.50)
+## Features (firmware v9.60)
 
 - **Keys:** 25 keys with velocity from the two-contact timing, octave −4…+4 (OCT−/OCT+, both = reset),
   transpose ±12, velocity curves (soft / normal / hard / fixed).
@@ -32,7 +32,7 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
 - **Home screen:** shows octave, pad bank and mode, arp, note repeat, full level, clock source, USB and tempo;
   pressing a button shows a short ON/OFF message, and TAP TEMPO shows the BPM as you tap (or the external clock's).
 - **Idle screen:** after a chosen idle time the keyboard plays ping-pong against itself, shows a static picture
-  (inverted every minute against burn-in), or switches the screen off. Pick it in the menu or the GUI.
+  (inverted every minute against burn-in), or switches the screen and all LEDs off. Pick it in the menu or the GUI.
 - **Idle picture:** draw it pixel by pixel in the GUI (left button draws, right erases, clear, invert), or load any
   picture (scaled and dithered to 128×32); it is stored in the keyboard's flash. The built-in logo is the default.
 

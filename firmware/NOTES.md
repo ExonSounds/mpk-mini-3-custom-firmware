@@ -167,6 +167,7 @@ LEDs 0, 1 and 8–15 get full PWM range; the rest are capped at brightness 4 (pr
   is an average that resets on a >25 % change). Static image idle screen (IDLE SCREEN 2): a 512-byte 1-bit image
   in OLED page order, stored at settings page +0x100 (magic "IMG1" + sum16), inverted every 60 s. SysEx 06/07/08
   write (64-byte chunks), read and clear it. Flashing firmware erases the settings page and the image with it.
+- v9.60, tested 2026-11-21: idle screen OFF also darkens every LED (ui_leds_off masks the PWM output).
 - The bootloader jumps to `[0x0800A004]` with interrupts disabled and without loading SP, so the app must set SP and VTOR itself.
 - OLED: frames pinned to pages 0–3 are invisible. The glass shows the other half of the controller's 64-row memory,
   or which half is visible varies. Writing the frame to pages 0–7 (twice) works. Stock avoids the problem by letting frames alternate.

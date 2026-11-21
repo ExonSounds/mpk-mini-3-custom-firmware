@@ -14,4 +14,5 @@ extern volatile uint8_t ui_full_level;
 void ui_button_row(int row, uint8_t closed);  /* from SysTick, rows 8 and 9 */
 void ui_led_tick(void);                       /* from SysTick (20 kHz): LED software PWM */
 void ui_pad_led(int pad, int on);
+extern volatile uint8_t ui_leds_off;          /* 1 = all LEDs dark (idle screen OFF) */
 void ui_activity(void);                       /* something was used: keeps the screen on (main.c) */

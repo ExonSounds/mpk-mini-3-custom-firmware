@@ -18,7 +18,8 @@
 #include "gfx.c"
 
 /* stubs for the board/USB functions main.c, analog.c, ui.c and menu.c link against */
-void led_out(uint32_t bits) { (void)bits; }
+static uint32_t led_bits;
+void led_out(uint32_t bits) { led_bits = bits; }
 void oled_power(int on) { (void)on; }
 void adc_init(void) {}
 void delay(volatile uint32_t n) { (void)n; }
@@ -635,5 +636,15 @@ int main(void) {
     assert(!settings_valid(&S));
     settings_defaults();
     puts("idle image ok");
+
+    for (int i = 0; i < 4 * 32 * 2; i++) ui_led_tick();  /* defaults: BANK A LED is lit */
+    uint32_t lit = 0; for (int i = 0; i < 4 * 32; i++) ui_led_tick(), lit |= led_bits;
+    ui_leds_off = 1;                                     /* idle screen OFF: every LED dark for a whole period */
+    for (int i = 0; i < 8; i++) ui_led_tick();
+    uint32_t dark = 0; for (int i = 0; i < 4 * 32; i++) ui_led_tick(), dark |= led_bits;
+    ui_leds_off = 0;
+    uint32_t back = 0; for (int i = 0; i < 4 * 32; i++) ui_led_tick(), back |= led_bits;
+    assert(lit && !dark && back == lit);
+    puts("leds off ok");
     return 0;
 }

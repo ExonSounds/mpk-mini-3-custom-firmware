@@ -168,6 +168,7 @@ int main(void) {
         if (want_on != screen_on) {
             screen_on = want_on;
             oled_power(want_on);
+            ui_leds_off = !want_on;  /* idle screen OFF darkens the LEDs too */
             if (want_on) shown_dirty = 1, menu_dirty = 1;
         }
         if (!screen_on) continue;
