@@ -104,6 +104,27 @@ void cfg_poll(void) {
         menu_dirty = 1;
         status(cmd, 0);
         break;
+    case 0x06: {  /* IMAGE_WRITE: offset hi, lo (7 bits each), then 64 bytes as nibbles; save with SAVE */
+        unsigned off = n >= 2 ? (unsigned)(data[0] << 7 | data[1]) : 512;
+        if (n != 2 + 128 || off > 512 - 64) { status(cmd, 1); break; }
+        for (unsigned i = 0; i < 64; i++) idle_image[off + i] = (data[2 + 2 * i] & 15) << 4 | (data[3 + 2 * i] & 15);
+        idle_image_set = 1, image_dirty = 1;
+        status(cmd, 0);
+        break;
+    }
+    case 0x07: {  /* IMAGE_READ: offset hi, lo -> set flag, 64 bytes as nibbles */
+        unsigned off = n == 2 ? (unsigned)(data[0] << 7 | data[1]) : 512;
+        if (off > 512 - 64) { status(cmd, 1); break; }
+        uint8_t r[1 + 128];
+        r[0] = idle_image_set;
+        for (unsigned i = 0; i < 64; i++) r[1 + 2 * i] = idle_image[off + i] >> 4, r[2 + 2 * i] = idle_image[off + i] & 15;
+        reply(cmd, r, sizeof r);
+        break;
+    }
+    case 0x08:    /* IMAGE_CLEAR: back to the built-in logo; save with SAVE */
+        idle_image_set = 0, image_dirty = 1;
+        status(cmd, 0);
+        break;
     default: status(cmd, 0x7F);
     }
 }

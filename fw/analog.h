@@ -17,6 +17,6 @@ void joy_state(int *x, int *y);                                  /* -1000..1000,
 
 /* Provided by main.c */
 void midi_push(uint32_t pkt);
-void show3(int a, int b, int c);    /* number screen (joystick, octave, tempo) */
-enum { V_NUMBERS, V_KEYS, V_PADS, V_KNOBS, V_JOY };
-void show_view(int v);              /* switch the screen to a live view and redraw it */
+enum { V_HOME, V_KEYS, V_PADS, V_KNOBS, V_JOY, V_MSG, V_TEMPO };
+void show_view(int v);              /* switch the screen to a view and redraw it (MSG/TEMPO time out to HOME) */
+void show_msg(const char *title, const char *value);  /* a button's new state, ~1.5 s */

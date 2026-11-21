@@ -163,6 +163,10 @@ LEDs 0, 1 and 8–15 get full PWM range; the rest are capped at brightness 4 (pr
   near the SSD1306 100 ns minimum). Fixed a race: the idle check `ticks - last_use` could go negative when the
   SysTick updated last_use mid-expression; unsigned, that flashed pong frames while turning knobs (now signed).
   The keybed has no pressure sensor (two contacts per key only).
+- v9.40–v9.50, tested 2026-11-21: home status screen, ON/OFF messages, tap tempo BPM screen (external clock BPM
+  is an average that resets on a >25 % change). Static image idle screen (IDLE SCREEN 2): a 512-byte 1-bit image
+  in OLED page order, stored at settings page +0x100 (magic "IMG1" + sum16), inverted every 60 s. SysEx 06/07/08
+  write (64-byte chunks), read and clear it. Flashing firmware erases the settings page and the image with it.
 - The bootloader jumps to `[0x0800A004]` with interrupts disabled and without loading SP, so the app must set SP and VTOR itself.
 - OLED: frames pinned to pages 0–3 are invisible. The glass shows the other half of the controller's 64-row memory,
   or which half is visible varies. Writing the frame to pages 0–7 (twice) works. Stock avoids the problem by letting frames alternate.

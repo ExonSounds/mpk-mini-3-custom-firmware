@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #define main fw_main
 #include "main.c"
@@ -561,5 +562,78 @@ int main(void) {
     }
     assert(lit_at[0] > 0 && lit_at[0] < 364 / 8 && lit_at[1] > 364 * 3 / 8 && lit_at[1] < 364 * 5 / 8 && lit_at[2] == 364);
     puts("views ok");
+
+    /* status messages, tempo screen, BPM from external clock, home screen */
+    settings_defaults();
+    while (qt != qh) pop();
+    buttons(1 << BTN_ARP); buttons(0);
+    assert(view == V_MSG && !strcmp(msg_title, "ARPEGGIATOR") && !strcmp(msg_value, "ON"));
+    buttons(1 << BTN_ARP); buttons(0);
+    assert(!strcmp(msg_value, "OFF"));
+    buttons(1 << BTN_OCT_UP); buttons(0);
+    assert(!strcmp(msg_title, "OCTAVE") && !strcmp(msg_value, "+1"));
+    buttons(1 << BTN_OCT_UP | 1 << BTN_OCT_DOWN); buttons(0);
+    assert(!strcmp(msg_value, "0") && ui_octave == 0);
+    buttons(1 << BTN_PROG_CHANGE); buttons(0);
+    assert(!strcmp(msg_value, "PROGRAM"));
+    buttons(1 << BTN_PROG_CHANGE); buttons(0);
+    assert(!strcmp(msg_value, "NOTES"));
+    buttons(1 << BTN_TAP_TEMPO); buttons(0);
+    assert(view == V_TEMPO && seq_bpm() == S.tempo);
+    S.clock_ext = 1;
+    for (int c = 0; c < 48; c++) { for (int t = 0; t < 200; t++) seq_tick(); RT(0xF8); }
+    assert(seq_bpm() == 250);                          /* 24 clocks per quarter, one every 10 ms */
+    for (int t = 0; t < 21000; t++) seq_tick();
+    assert(seq_bpm() == 0);                            /* clock stopped: shown as --- */
+    while (qt != qh) pop();
+    S.clock_ext = 0;
+    home_t h = {.octave = -2, .bank = 1, .pad_mode = 1, .arp = 1, .full = 1, .usb = 1, .bpm = 128};
+    draw_home(&h);
+    int l1 = 0, l3 = 0;
+    for (int x = 0; x < 120; x++) {
+        for (int y = 1; y < 8; y++) l1 |= LIT(x, y);
+        for (int y = 24; y < 31; y++) l3 |= LIT(x, y);
+    }
+    assert(l1 && l3 && LIT(124, 28));                  /* status lines and the USB square */
+    draw_tempo(128, 0, 1);
+    assert(LIT(115, 17) && LIT(8, 20));                /* beat dot on, big digits (stem of the "1") */
+    draw_tempo(128, 0, 0);
+    assert(!LIT(115, 17) && LIT(110, 12));             /* beat dot off: outline only */
+    puts("status screens ok");
+
+    /* idle image over SysEx: write 8 chunks, read one back, reject a bad offset, clear; inversion */
+    uint8_t m[6 + 2 + 128];
+    m[0] = 0xF0, m[1] = 0x7D, m[2] = 0x4D, m[3] = 0x4B, m[4] = 0x06, m[sizeof m - 1] = 0xF7;
+    for (int off = 0; off < 512; off += 64) {
+        m[5] = off >> 7, m[6] = off & 127;
+        for (int i = 0; i < 64; i++) m[7 + 2 * i] = (off / 64 + i) >> 4 & 15, m[8 + 2 * i] = (off / 64 + i) & 15;
+        host_send(m, sizeof m);
+        assert(host_reply(r) == 7 && r[5] == 0);
+    }
+    assert(idle_image_set && idle_image[0] == 0 && idle_image[64] == 1 && idle_image[511] == 7 + 63);
+    const uint8_t rd[] = {0xF0, 0x7D, 0x4D, 0x4B, 0x07, 0, 64, 0xF7};
+    host_send(rd, sizeof rd);
+    uint8_t big[160];
+    assert(host_reply(big) == 6 + 129 && big[4] == 0x47 && big[5] == 1);
+    for (int i = 0; i < 64; i++) assert((big[6 + 2 * i] << 4 | big[7 + 2 * i]) == 1 + i);
+    m[5] = 4, m[6] = 1;                                  /* offset 513: refused */
+    host_send(m, sizeof m);
+    assert(host_reply(r) == 7 && r[5] == 1);
+    draw_idle_image(idle_image, 0);
+    assert(fb[64] == 1 && fb[0] == 0);
+    draw_idle_image(idle_image, 1);
+    assert(fb[64] == 0xFE && fb[0] == 0xFF);             /* inverted against burn-in */
+    const uint8_t clr[] = {0xF0, 0x7D, 0x4D, 0x4B, 0x08, 0xF7};
+    host_send(clr, sizeof clr);
+    assert(host_reply(r) == 7 && r[5] == 0 && !idle_image_set);
+    draw_idle_image(0, 0);                               /* built-in logo */
+    int logo = 0; for (int i = 0; i < 512; i++) logo += fb[i] != 0;
+    assert(logo > 20);
+    S.idle_screen = IDLE_IMAGE;
+    assert(settings_valid(&S));
+    S.idle_screen = 3;
+    assert(!settings_valid(&S));
+    settings_defaults();
+    puts("idle image ok");
     return 0;
 }

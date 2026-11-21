@@ -70,16 +70,23 @@ static void press(int b, uint16_t held) {
         if (held >> other & 1) ui_octave = 0;  /* both together: back to normal */
         else if (b == BTN_OCT_UP && ui_octave < 4) ui_octave++;
         else if (b == BTN_OCT_DOWN && ui_octave > -4) ui_octave--;
-        show3(48 + 12 * ui_octave, 0, 0);  /* lowest key's note */
+        char v[3] = {ui_octave > 0 ? '+' : ui_octave < 0 ? '-' : ' ', (char)('0' + (ui_octave < 0 ? -ui_octave : ui_octave)), 0};
+        show_msg("OCTAVE", ui_octave ? v : "0");
         break;
     }
     case BTN_PAD_BANK: ui_bank ^= 1; show_view(V_PADS); break;
-    case BTN_CC: ui_pad_mode = ui_pad_mode == PADS_CC ? PADS_NOTE : PADS_CC; break;
-    case BTN_PROG_CHANGE: ui_pad_mode = ui_pad_mode == PADS_PROG ? PADS_NOTE : PADS_PROG; break;
-    case BTN_FULL_LEVEL: ui_full_level ^= 1; break;
-    case BTN_ARP: seq_arp_toggle(); break;
-    case BTN_NOTE_REPEAT: seq_repeat_on ^= 1; break;
-    case BTN_TAP_TEMPO: seq_tap(); show3(S.tempo, 0, 0); break;
+    case BTN_CC:
+    case BTN_PROG_CHANGE: {
+        int m = b == BTN_CC ? PADS_CC : PADS_PROG;
+        ui_pad_mode = ui_pad_mode == m ? PADS_NOTE : m;
+        static const char *const names[3] = {"NOTES", "CC", "PROGRAM"};
+        show_msg("PAD MODE", names[ui_pad_mode]);
+        break;
+    }
+    case BTN_FULL_LEVEL: ui_full_level ^= 1; show_msg("FULL LEVEL", ui_full_level ? "ON" : "OFF"); break;
+    case BTN_ARP: seq_arp_toggle(); show_msg("ARPEGGIATOR", seq_arp_on ? "ON" : "OFF"); break;
+    case BTN_NOTE_REPEAT: seq_repeat_on ^= 1; show_msg("NOTE REPEAT", seq_repeat_on ? "ON" : "OFF"); break;
+    case BTN_TAP_TEMPO: seq_tap(); show_view(V_TEMPO); break;  /* BPM screen, updates with every tap */
     default: return;
     }
     update_leds();

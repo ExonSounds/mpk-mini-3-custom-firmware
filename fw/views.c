@@ -130,3 +130,72 @@ void draw_knobs(const uint8_t pos[8], const uint8_t value[8], uint8_t rel) {
         digit(cx - 1, 27, i + 1, 1);  /* knob number */
     }
 }
+
+/* ---- home, button messages, tempo ---- */
+static char *put_int(char *p, int v, int plus) {
+    if (v < 0) *p++ = '-', v = -v;
+    else if (plus && v > 0) *p++ = '+';
+    if (v >= 100) *p++ = '0' + v / 100;
+    if (v >= 10) *p++ = '0' + v / 10 % 10;
+    *p++ = '0' + v % 10;
+    return p;
+}
+
+static char *put_s(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
+
+void draw_home(const home_t *h) {
+    static const char *const modes[3] = {"NOTES", "CC", "PROG"};
+    char l1[24], l2[16], l3[20], *p;
+    p = put_s(l1, "OCT");
+    p = put_int(p, h->octave, 1);
+    p = put_s(p, "  BANK ");
+    *p++ = h->bank ? 'B' : 'A';
+    p = put_s(p, "  ");
+    p = put_s(p, modes[h->pad_mode > 2 ? 0 : h->pad_mode]);
+    *p = 0;
+    p = h->bpm ? put_int(l2, h->bpm, 0) : put_s(l2, "---");
+    p = put_s(p, h->ext ? " BPM EXT" : " BPM");
+    *p = 0;
+    p = l3;
+    if (h->arp) p = put_s(p, "ARP ");
+    if (h->repeat) p = put_s(p, "REPEAT ");
+    if (h->full) p = put_s(p, "FULL");
+    *p = 0;
+    fb_clear();
+    text(0, 1, l1, 1);
+    text(0, 12, l2, 1);
+    text(0, 24, l3, 1);
+    if (h->usb) rect(122, 26, 5, 5);
+}
+
+static int width(const char *s, int scale) { int n = 0; while (s[n]) n++; return n * 6 * scale; }
+
+void draw_msg(const char *title, const char *value) {
+    fb_clear();
+    text((128 - width(title, 1)) / 2, 1, title, 1);
+    text((128 - width(value, 2)) / 2, 14, value, 2);
+}
+
+void draw_tempo(int bpm, int ext, int beat) {
+    char n[8];
+    *(bpm ? put_int(n, bpm, 0) : put_s(n, "---")) = 0;
+    fb_clear();
+    text(0, 1, ext ? "TEMPO  EXT" : "TEMPO", 1);
+    text(0, 11, n, 3);
+    text(width(n, 3) + 4, 25, "BPM", 1);
+    if (beat) rect(110, 12, 12, 12);
+    else frame(110, 12, 12, 12);
+}
+
+/* ---- idle image: the uploaded picture or the built-in logo; inverted every minute by the caller ---- */
+void draw_idle_image(const uint8_t *img, int invert) {
+    if (img) {
+        for (int i = 0; i < 512; i++) fb[i] = img[i];
+    } else {
+        fb_clear();
+        text(4, 4, "MPK MINI 3", 2);
+        text(19, 22, "CUSTOM FIRMWARE", 1);
+    }
+    if (invert)
+        for (int i = 0; i < 512; i++) fb[i] ^= 0xFF;
+}

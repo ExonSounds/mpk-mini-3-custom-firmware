@@ -3,6 +3,9 @@
 #include "board.h"
 
 settings_t S;
+uint8_t idle_image[512];
+uint8_t idle_image_set;
+volatile uint8_t image_dirty;
 
 /* Defaults = stock program 1 ("Live"). */
 void settings_defaults(void) {
@@ -25,6 +28,7 @@ int curve(int v, int which) {
 
 /* Record: magic, settings bytes, sum16 of the settings bytes. */
 #define MAGIC (0x304B504Du + ((uint32_t)SETTINGS_LAYOUT << 24))  /* "MPK" + layout digit */
+#define IMAGE_MAGIC 0x31474D49u  /* "IMG1" */
 
 static uint16_t sum(const uint8_t *p, int n) {
     uint16_t s = 0;
@@ -39,7 +43,7 @@ int settings_valid(const settings_t *s) {
     for (unsigned i = 0; i < sizeof lim; i++) if (c[i] > lim[i]) return 0;
     for (unsigned i = offsetof(settings_t, knob_cc); i < offsetof(settings_t, idle_screen); i++)
         if (c[i] > 127) return 0;
-    if (s->idle_screen > 1) return 0;
+    if (s->idle_screen > IDLE_IMAGE) return 0;
     for (int i = 0; i < 8; i++) if (s->knob_rel[i] > 1) return 0;
     return s->tempo >= 40 && s->swing >= 50 && s->gate >= 5;
 }
@@ -52,6 +56,10 @@ void settings_load(void) {
     uint16_t stored = f[4 + sizeof s] | f[5 + sizeof s] << 8;
     if (*(const uint32_t *)f == MAGIC && stored == sum(d, sizeof s) && settings_valid(&s)) S = s;
     else settings_defaults();
+
+    const uint8_t *g = (const uint8_t *)IMAGE_ADDR;  /* image record: magic, 512 bytes, sum16 */
+    idle_image_set = *(const uint32_t *)g == IMAGE_MAGIC && (g[516] | g[517] << 8) == sum(g + 4, 512);
+    for (int i = 0; i < 512; i++) idle_image[i] = idle_image_set ? g[4 + i] : 0;
 }
 
 /* STM32F1-style flash controller (stock uses the same registers: 0x08013E.. / bootloader 0x080033E4). */
@@ -88,10 +96,19 @@ int settings_save(void) {
     wait_flash();
     FLASH_CR &= ~2u;
     for (unsigned i = 0; i < sizeof rec; i += 2) program16(SETTINGS_ADDR + i, rec[i] | rec[i + 1] << 8);
+    uint16_t isum = sum(idle_image, 512);
+    if (idle_image_set) {                /* the erase took the image too: write it back */
+        program16(IMAGE_ADDR, IMAGE_MAGIC & 0xFFFF);
+        program16(IMAGE_ADDR + 2, IMAGE_MAGIC >> 16);
+        for (unsigned i = 0; i < 512; i += 2) program16(IMAGE_ADDR + 4 + i, idle_image[i] | idle_image[i + 1] << 8);
+        program16(IMAGE_ADDR + 516, isum);
+    }
     FLASH_CR |= 1u << 7;                 /* LOCK */
     irq_enable();
 
-    const uint8_t *f = (const uint8_t *)SETTINGS_ADDR;
+    const uint8_t *f = (const uint8_t *)SETTINGS_ADDR, *g = (const uint8_t *)IMAGE_ADDR;
     for (unsigned i = 0; i < sizeof rec; i++) if (f[i] != rec[i]) return 0;
+    if (idle_image_set)
+        for (unsigned i = 0; i < 512; i++) if (g[4 + i] != idle_image[i]) return 0;
     return 1;
 }

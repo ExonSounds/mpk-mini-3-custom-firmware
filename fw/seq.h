@@ -9,7 +9,8 @@ extern volatile uint8_t seq_arp_on, seq_repeat_on, seq_beat_led;
 
 void seq_tick(void);                          /* every SysTick (20 kHz) */
 void seq_tap(void);                           /* TAP TEMPO pressed: sets S.tempo from the last taps */
-void seq_realtime(uint8_t b);                 /* realtime byte from the host: F8 clock, FA/FB/FC start/continue/stop */
+void seq_realtime(uint8_t b);
+int seq_bpm(void);                            /* tempo now: S.tempo, or measured from MIDI clock (0 = none) */                 /* realtime byte from the host: F8 clock, FA/FB/FC start/continue/stop */
 void seq_arp_toggle(void);
 void arp_key(int note, int vel, int on);      /* key routed to the arpeggiator */
 void repeat_pad(int pad, int note, int vel, int on);  /* pad routed to note repeat */

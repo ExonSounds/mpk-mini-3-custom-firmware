@@ -79,6 +79,7 @@ static void do_pulse(void);
  * 4 x clocks (steps are multiples of 4 pulses, so they land on a clock); in between, up to 3 pulses are filled in
  * at the measured spacing, never running ahead of the host. ---- */
 static uint32_t ext_last, ext_period, last_pulse, ext_done, ext_target;  /* ext_period 0 = not measured yet */
+static uint32_t ext_iv16;  /* clock interval in ticks x16, smoothed, for the BPM display */
 static uint8_t stopped;
 
 void seq_realtime(uint8_t b) {
@@ -87,6 +88,10 @@ void seq_realtime(uint8_t b) {
         uint32_t iv = seq_ticks - ext_last;
         ext_last = seq_ticks;
         ext_period = iv < TICK_HZ ? iv / 4 : 0;     /* a gap over 1 s: don't guess the spacing */
+        if (ext_period) {  /* smooth USB jitter for the BPM display, but follow a real tempo change at once */
+            int32_t d = (int32_t)(iv * 16) - (int32_t)ext_iv16;
+            ext_iv16 = !ext_iv16 || d > (int32_t)ext_iv16 / 4 || -d > (int32_t)ext_iv16 / 4 ? iv * 16 : ext_iv16 + d / 8;
+        }
         if (stopped) return;
         ext_target += 4;
         while (ext_done < ext_target) ext_done++, do_pulse();
@@ -101,6 +106,12 @@ void seq_realtime(uint8_t b) {
         stopped = 1;
         gate_end();
     }
+}
+
+int seq_bpm(void) {
+    if (!S.clock_ext) return S.tempo;
+    if (!ext_iv16 || seq_ticks - ext_last > TICK_HZ) return 0;  /* no clock in the last second */
+    return (TICK_HZ * 60 / 24 * 16 + ext_iv16 / 2) / ext_iv16;  /* 24 clocks per quarter note */
 }
 
 void seq_tick(void) {

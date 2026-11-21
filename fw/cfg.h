@@ -6,6 +6,9 @@
  *     03 SET      <- settings nibbles; applied at once (not saved)      -> status
  *     04 SAVE     -> status (written to flash and verified)
  *     05 DEFAULTS -> status (applied, not saved)
+ *     06 IMAGE_WRITE <- offset hi, lo (7 bits each, multiple of 64), 64 bytes as nibbles -> status (save with SAVE)
+ *     07 IMAGE_READ  <- offset hi, lo -> image-set flag, 64 bytes as nibbles
+ *     08 IMAGE_CLEAR -> status (idle image back to the built-in logo; save with SAVE)
  * status: 0 ok, 1 wrong length, 2 invalid values / save failed, 0x7F unknown command */
 #pragma once
 #include <stdint.h>

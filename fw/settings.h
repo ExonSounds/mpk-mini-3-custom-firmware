@@ -7,6 +7,9 @@
 
 enum { CURVE_SOFT, CURVE_NORMAL, CURVE_HARD, CURVE_FIXED };
 enum { JOY_PITCH, JOY_CC, JOY_DUAL };  /* pitch bend / one CC over the whole range / one CC per direction */
+enum { IDLE_PONG, IDLE_OFF, IDLE_IMAGE };  /* idle_screen */
+
+#define IMAGE_ADDR (SETTINGS_ADDR + 0x100)  /* idle image record, same flash page: saved together with the settings */
 
 typedef struct {
     /* single settings: one limit each in settings.c lim[], in this order (test_mpk3_cfg.py checks it) */
@@ -30,10 +33,13 @@ typedef struct {
     uint8_t knob_cc[8], knob_min[8], knob_max[8];
     uint8_t knob_rel[8];                 /* 0 absolute, 1 relative (64 +/- steps) */
     uint8_t pad_note[16], pad_cc[16], pad_pc[16];
-    uint8_t idle_screen;                 /* 0 ping-pong, 1 screen off; was a reserved 0 byte, so old saves = pong */
+    uint8_t idle_screen;                 /* IDLE_*; was a reserved 0 byte, so old saves = ping-pong */
 } settings_t;
 
 extern settings_t S;
+extern uint8_t idle_image[512];   /* 128x32, same layout as fb; uploaded from the GUI */
+extern uint8_t idle_image_set;    /* 0 = none uploaded: the built-in logo is shown */
+extern volatile uint8_t image_dirty;  /* set when the image changes (from the GUI) so a showing idle screen redraws */
 
 void settings_defaults(void);
 void settings_load(void);   /* defaults if the flash record is missing or corrupt */

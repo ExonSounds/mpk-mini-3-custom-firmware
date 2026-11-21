@@ -7,7 +7,9 @@ import json
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from mpk3_cfg import LAYOUT, SETTINGS, Device, encode
+from mpk3_cfg import IMG_H, IMG_W, LAYOUT, SETTINGS, Device, encode, image_pixel, line_points, set_pixel, to_oled
+
+PREVIEW = 5  # idle image editor: screen pixels per keyboard pixel
 
 GROUPS = ["General", "Pads", "Knobs", "Joystick", "Arp & tempo", "Display"]
 LIVE_DELAY_MS = 250  # send this long after the last edit, so dragging a spinbox doesn't flood the keyboard
@@ -66,6 +68,35 @@ class App:
             self.vars[s.key] = var
             self.inputs.append(w)
             var.trace_add("write", lambda *_, s=s: self.edited(s))
+
+        # idle image (Display tab): a small pixel editor plus load / send / logo
+        img = ttk.LabelFrame(frames["Display"], text="Idle image: left button draws, right button erases "
+                             "(inverted every minute on the keyboard)", padding=8)
+        img.grid(row=98, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        self.canvas = tk.Canvas(img, width=IMG_W * PREVIEW, height=IMG_H * PREVIEW, bg="black", highlightthickness=0,
+                                cursor="pencil")
+        self.canvas.grid(row=0, column=0, columnspan=5, pady=(0, 6))
+        # one cell per keyboard pixel, created once and only recoloured, so dragging stays smooth
+        self.cells = [[self.canvas.create_rectangle(x * PREVIEW, y * PREVIEW, (x + 1) * PREVIEW - 1,
+                                                    (y + 1) * PREVIEW - 1, fill="black", outline="#202020")
+                       for x in range(IMG_W)] for y in range(IMG_H)]
+        self.logo_text = self.canvas.create_text(IMG_W * PREVIEW // 2, IMG_H * PREVIEW // 2, fill="white",
+                                                 text="MPK MINI 3\ncustom firmware\n(built-in logo: draw to replace it)",
+                                                 font="TkFixedFont 13 bold", justify="center")
+        self.picture, self.last, self.image_note = None, None, tk.StringVar(value="")
+        for button, on in (("1", True), ("3", False)):
+            self.canvas.bind(f"<Button-{button}>", lambda e, on=on: self.paint(e, on))
+            self.canvas.bind(f"<B{button}-Motion>", lambda e, on=on: self.paint(e, on))
+            self.canvas.bind(f"<ButtonRelease-{button}>", lambda e: setattr(self, "last", None))
+        for c, (text, cmd) in enumerate((("Load picture…", self.load_picture), ("Clear", self.clear_picture),
+                                         ("Invert", self.invert_picture), ("Send to keyboard", self.send_picture),
+                                         ("Use built-in logo", self.use_logo))):
+            b = ttk.Button(img, text=text, command=cmd)
+            b.grid(row=1, column=c, sticky="w", padx=(0, 6))
+            if text in ("Send to keyboard", "Use built-in logo"):
+                self.inputs.append(b)  # these need the keyboard; drawing works before connecting
+        ttk.Label(img, textvariable=self.image_note, foreground="gray").grid(row=2, column=0, columnspan=5, sticky="w")
+        self.draw_preview(None)
 
         bottom = ttk.Frame(root, padding=8)
         bottom.pack(fill="x")
@@ -140,9 +171,74 @@ class App:
             self.dev = self.factory()
             info = self.dev.hello()
             self.show(self.dev.read())
+            uploaded, data = self.dev.read_image()
+            self.picture = bytearray(data) if uploaded else None  # edit the keyboard's current picture
+            self.draw_preview(self.picture)
+            self.image_note.set("On the keyboard: your picture" if uploaded else "On the keyboard: the built-in logo")
             self.enable(True)
             self.status.set(f"Connected: custom firmware v{info['version']}")
         self.action(go)
+
+    # ---- idle image ----
+    def draw_preview(self, data):
+        """data = 512-byte picture, or None for the built-in logo (shown as text over an empty grid)."""
+        for y in range(IMG_H):
+            for x in range(IMG_W):
+                self.canvas.itemconfig(self.cells[y][x], fill="white" if data and image_pixel(data, x, y) else "black")
+        self.canvas.itemconfig(self.logo_text, state="hidden" if data is not None else "normal")
+
+    def paint(self, event, on):
+        x, y = event.x // PREVIEW, event.y // PREVIEW
+        if self.picture is None:  # first stroke over the logo starts a blank picture
+            self.picture = bytearray(512)
+            self.draw_preview(self.picture)
+        for px, py in line_points(*(self.last or (x, y)), x, y):
+            if 0 <= px < IMG_W and 0 <= py < IMG_H:
+                set_pixel(self.picture, px, py, on)
+                self.canvas.itemconfig(self.cells[py][px], fill="white" if on else "black")
+        self.last = (x, y)
+        self.image_note.set("Edited - not sent yet")
+
+    def clear_picture(self):
+        self.picture = bytearray(512)
+        self.draw_preview(self.picture)
+        self.image_note.set("Cleared - not sent yet")
+
+    def invert_picture(self):
+        self.picture = bytearray(b ^ 0xFF for b in (self.picture or bytes(512)))
+        self.draw_preview(self.picture)
+        self.image_note.set("Inverted - not sent yet")
+
+    def load_picture(self):
+        path = filedialog.askopenfilename(filetypes=[("Pictures", "*.png *.gif *.ppm *.pgm")])
+        if path:
+            def go():
+                photo = tk.PhotoImage(file=path)  # Tk reads PNG/GIF/PPM itself: no extra packages
+                w, h = photo.width(), photo.height()
+                gray = [[sum(photo.get(x, y)) // 3 for x in range(w)] for y in range(h)]
+                self.picture = bytearray(to_oled(gray, w, h))
+                self.draw_preview(self.picture)
+                self.image_note.set(f"{path.rsplit('/', 1)[-1]} ({w}x{h}) - not sent yet")
+            self.action(go, "Picture loaded: check the preview, then Send to keyboard")
+
+    def send_picture(self):
+        if self.picture is None:
+            self.status.set("Draw or load a picture first")
+            return
+        def go():
+            self.dev.write_image(bytes(self.picture))
+            self.dev.save()
+            self.image_note.set("On the keyboard: your picture")
+        self.action(go, "Picture saved on the keyboard (choose Image under 'When idle, show')")
+
+    def use_logo(self):
+        def go():
+            self.dev.clear_image()
+            self.dev.save()
+            self.picture = None
+            self.draw_preview(None)
+            self.image_note.set("On the keyboard: the built-in logo")
+        self.action(go, "The keyboard shows its built-in logo again")
 
     def read(self):
         self.action(lambda: self.show(self.dev.read()), "Read from the keyboard")

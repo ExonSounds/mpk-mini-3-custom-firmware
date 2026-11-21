@@ -2,7 +2,8 @@ import os
 import re
 import unittest
 
-from mpk3_cfg import HDR, LAYOUT, SETTINGS, decode, encode, from_nibbles, msg, parse_reply, to_nibbles
+from mpk3_cfg import (HDR, LAYOUT, SETTINGS, decode, encode, from_nibbles, image_pixel, line_points, msg,
+                      parse_reply, set_pixel, to_nibbles, to_oled)
 
 FW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fw")
 
@@ -26,7 +27,7 @@ class CfgTest(unittest.TestCase):
         lim = [int(x) for x in re.search(r"lim\[\] = \{([^}]*)\}", src)[1].split(",")]
         self.assertEqual([s.hi for s in SETTINGS[:len(lim)]], lim)  # single settings, checked one by one in C
         for s in SETTINGS[len(lim):]:                                # arrays: settings_valid() loops
-            self.assertEqual(s.hi, 1 if s.key.startswith("knob_rel") or s.key == "idle_screen" else 127, s.key)
+            self.assertEqual(s.hi, 1 if s.key.startswith("knob_rel") else 2 if s.key == "idle_screen" else 127, s.key)
         self.assertEqual(SETTINGS[len(lim)].key, "knob_cc1")
         layout = int(re.search(r"#define SETTINGS_LAYOUT (\d+)", open(os.path.join(FW, "settings.h")).read())[1])
         self.assertEqual(layout, LAYOUT)
@@ -71,6 +72,40 @@ class CfgTest(unittest.TestCase):
                 ch.parse(bad)
         with self.assertRaisesRegex(ValueError, "choose one of"):
             next(s for s in SETTINGS if s.key == "arp_mode").parse("Sideways")
+
+
+    def test_image_conversion(self):
+        white, black = [[255] * 128 for _ in range(32)], [[0] * 128 for _ in range(32)]
+        self.assertEqual(to_oled(white, 128, 32), b"\xff" * 512)
+        self.assertEqual(to_oled(black, 128, 32), bytes(512))
+        grey = to_oled([[128] * 128 for _ in range(32)], 128, 32)
+        lit = sum(bin(b).count("1") for b in grey)
+        self.assertTrue(4096 * 0.4 < lit < 4096 * 0.6)       # 50 % grey dithers to about half
+        self.assertEqual(to_oled([[255] * 256 for _ in range(64)], 256, 64), b"\xff" * 512)  # same shape: fills
+        wide = to_oled([[255] * 256 for _ in range(32)], 256, 32)  # twice as wide: 128x16, bars above and below
+        self.assertTrue(image_pixel(wide, 64, 16) and not image_pixel(wide, 64, 2) and not image_pixel(wide, 64, 29))
+        tall = to_oled([[255] * 32 for _ in range(32)], 32, 32)
+        self.assertTrue(image_pixel(tall, 64, 16) and not image_pixel(tall, 10, 16) and not image_pixel(tall, 117, 16))
+        one = bytearray(512)
+        one[(9 >> 3) * 128 + 5] |= 1 << (9 & 7)              # pixel (5, 9) in the OLED's own layout
+        self.assertTrue(image_pixel(bytes(one), 5, 9) and not image_pixel(bytes(one), 5, 8))
+
+    def test_editor_helpers(self):
+        img = bytearray(512)
+        for x, y in ((0, 0), (127, 31), (5, 9)):
+            set_pixel(img, x, y, True)
+            self.assertTrue(image_pixel(img, x, y))
+        set_pixel(img, 5, 9, False)
+        self.assertFalse(image_pixel(img, 5, 9))
+        self.assertTrue(image_pixel(img, 0, 0) and image_pixel(img, 127, 31))
+        set_pixel(img, 128, 5, True)                       # off the edge: ignored
+        set_pixel(img, -1, 5, True)
+        self.assertEqual(sum(bin(b).count("1") for b in img), 2)
+        for a, b in (((0, 0), (10, 3)), ((20, 30), (2, 1)), ((7, 7), (7, 7)), ((0, 31), (127, 0))):
+            pts = line_points(*a, *b)
+            self.assertEqual((pts[0], pts[-1]), (a, b))
+            for p, q in zip(pts, pts[1:]):                 # every step goes to a neighbouring pixel: no gaps
+                self.assertLessEqual(max(abs(p[0] - q[0]), abs(p[1] - q[1])), 1)
 
 
 if __name__ == "__main__":

@@ -32,11 +32,25 @@ void usb_midi_received(uint32_t pkt) {
     else cfg_rx(pkt);                                       /* SysEx from the configuration GUI */
 }
 
-static volatile int16_t shown[3];
 static volatile uint8_t shown_dirty = 1;
-static volatile uint8_t view = V_NUMBERS;
-void show3(int a, int b, int c) { shown[0] = a, shown[1] = b, shown[2] = c, view = V_NUMBERS, shown_dirty = 1; ui_activity(); }
-void show_view(int v) { view = v, shown_dirty = 1; ui_activity(); }
+static volatile uint8_t view = V_HOME;
+static volatile uint32_t view_until;  /* MSG / TEMPO go back to HOME after this (compared signed: see idle check) */
+static char msg_title[22], msg_value[12];
+
+void show_view(int v) {
+    view = v, shown_dirty = 1;
+    view_until = ticks + (v == V_TEMPO ? 3 * 20000u : 30000u);  /* tempo 3 s after the last tap, messages 1.5 s */
+    ui_activity();
+}
+
+void show_msg(const char *title, const char *value) {
+    unsigned i;
+    for (i = 0; title[i] && i < sizeof msg_title - 1; i++) msg_title[i] = title[i];
+    msg_title[i] = 0;
+    for (i = 0; value[i] && i < sizeof msg_value - 1; i++) msg_value[i] = value[i];
+    msg_value[i] = 0;
+    show_view(V_MSG);
+}
 
 /* ---- Keys ---- */
 #define BASE_NOTE 48  /* lowest key = C3, like stock's default octave */
@@ -101,8 +115,10 @@ void SysTick_Handler(void) {
     ui_led_tick();
 }
 
-static void number(int x, int y, int v, int scale) {
-    for (int i = 2; i >= 0; i--, v /= 10) digit(x + i * 4 * scale, y, v % 10, scale);
+static int differs(const void *a, const void *b, unsigned n) {  /* no libc memcmp on the target */
+    const uint8_t *x = a, *y = b;
+    while (n--) if (*x++ != *y++) return 1;
+    return 0;
 }
 
 static void send_queued(void) {
@@ -125,8 +141,10 @@ int main(void) {
     SYST_CSR = 7;
     irq_enable();
 
-    int was_configured = -1, screen_on = 1, in_pong = 0;
+    int was_configured = -1, screen_on = 1, in_pong = 0, img_inv = 0;  /* in_pong: 1 ping-pong, 2 idle image shown */
     uint32_t pong_due = 0, last_draw = 0;
+    home_t drawn_home = {0};
+    int drawn_beat = 0;
     for (;;) {
         send_queued();
         cfg_poll();
@@ -146,15 +164,24 @@ int main(void) {
          * (= just used). Unsigned, that read as ~4 billion ticks idle and flashed a ping-pong frame mid-playing. */
         int idle = !menu_on && off_secs[S.screen_off] &&
                    (int32_t)(ticks - last_use) >= (int32_t)(off_secs[S.screen_off] * 20000u);
-        int want_on = !idle || S.idle_screen == 0;
+        int want_on = !idle || S.idle_screen != IDLE_OFF;
         if (want_on != screen_on) {
             screen_on = want_on;
             oled_power(want_on);
             if (want_on) shown_dirty = 1, menu_dirty = 1;
         }
         if (!screen_on) continue;
+        if (idle && S.idle_screen == IDLE_IMAGE) {  /* static image, inverted every minute against burn-in */
+            int inv = (int32_t)(ticks - last_use) / (60 * 20000) & 1;
+            if (in_pong != 2 || inv != img_inv || image_dirty) {
+                in_pong = 2, img_inv = inv, image_dirty = 0;
+                draw_idle_image(idle_image_set ? idle_image : 0, inv);
+                oled_flush();
+            }
+            continue;
+        }
         if (idle) {
-            if (!in_pong) in_pong = 1, pong_reset(), pong_due = ticks;
+            if (in_pong != 1) in_pong = 1, pong_reset(), pong_due = ticks;
             if ((int32_t)(ticks - pong_due) >= 0) {  /* ~30 frames per second */
                 pong_due += 660;
                 pong_step();
@@ -169,7 +196,15 @@ int main(void) {
             continue;
         }
         int cfg = usb_configured();
-        /* live views redraw as things change, at most every 20 ms so the screen never holds up MIDI */
+        if ((view == V_MSG || view == V_TEMPO) && (int32_t)(ticks - view_until) >= 0) view = V_HOME, shown_dirty = 1;
+        home_t home = {.octave = ui_octave, .bank = ui_bank, .pad_mode = ui_pad_mode, .arp = seq_arp_on,
+                       .repeat = seq_repeat_on, .full = ui_full_level, .ext = S.clock_ext, .usb = cfg,
+                       .bpm = (uint8_t)seq_bpm()};
+        int beat = seq_beat_led;
+        if ((view == V_HOME && differs(&home, &drawn_home, sizeof home)) ||
+            (view == V_TEMPO && (beat != drawn_beat || home.bpm != drawn_home.bpm)))
+            shown_dirty = 1;
+        /* views redraw as things change, at most every 20 ms so the screen never holds up MIDI */
         if ((shown_dirty && ticks - last_draw >= 400) || cfg != was_configured) {
             shown_dirty = 0, was_configured = cfg, last_draw = ticks;
             if (view == V_KEYS) {
@@ -188,13 +223,14 @@ int main(void) {
                 uint8_t pos[8], value[8], rel;
                 knob_state(pos, value, &rel);
                 draw_knobs(pos, value, rel);
+            } else if (view == V_MSG) {
+                draw_msg(msg_title, msg_value);
+            } else if (view == V_TEMPO) {
+                draw_tempo(home.bpm, home.ext, beat);
             } else {
-                fb_clear();
-                number(0, 3, shown[0], 5);
-                number(64, 3, shown[1], 3);
-                number(104, 3, shown[2], 2);
-                if (cfg) rect(120, 26, 6, 6);
+                draw_home(&home);
             }
+            drawn_home = home, drawn_beat = beat;
             oled_flush();
         }
     }
