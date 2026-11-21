@@ -117,12 +117,15 @@ void seq_tick(void) {
     do_pulse();
 }
 
+/* Swing lengthens even steps and shortens odd ones by the same amount (pairs keep the grid); gate = % of a step. */
 static void do_pulse(void) {
     beat = (beat + 1) % 96;
     seq_beat_led = beat < 12;
-    int len = div_pulses[S.arp_div];
-    if (++pulse == len / 2) gate_end();
-    if (pulse >= len) pulse = 0, seq_step++, step_start();
+    int len = div_pulses[S.arp_div], sw = len * (S.swing - 50) / 50;
+    int cur = seq_step & 1 ? len - sw : len + sw;
+    int gate = cur * S.gate / 100;
+    if (++pulse == (gate < 1 ? 1 : gate)) gate_end();
+    if (pulse >= cur) pulse = 0, seq_step++, step_start();
 }
 
 void seq_arp_toggle(void) {

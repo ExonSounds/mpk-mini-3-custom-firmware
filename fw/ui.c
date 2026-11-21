@@ -73,7 +73,7 @@ static void press(int b, uint16_t held) {
         show3(48 + 12 * ui_octave, 0, 0);  /* lowest key's note */
         break;
     }
-    case BTN_PAD_BANK: ui_bank ^= 1; show3(S.pad_note + 8 * ui_bank, 0, 0); break;
+    case BTN_PAD_BANK: ui_bank ^= 1; show3(S.pad_note[8 * ui_bank], 0, 0); break;
     case BTN_CC: ui_pad_mode = ui_pad_mode == PADS_CC ? PADS_NOTE : PADS_CC; break;
     case BTN_PROG_CHANGE: ui_pad_mode = ui_pad_mode == PADS_PROG ? PADS_NOTE : PADS_PROG; break;
     case BTN_FULL_LEVEL: ui_full_level ^= 1; break;

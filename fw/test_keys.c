@@ -11,6 +11,7 @@
 #include "menu.c"
 #include "settings.c"
 #include "seq.c"
+#include "cfg.c"
 
 /* stubs for the board/USB functions main.c, analog.c, ui.c and menu.c link against */
 int text(int x, int y, const char *s, int scale) { (void)y; (void)s; (void)scale; return x; }
@@ -28,11 +29,32 @@ void oled_flush(void) {}
 void rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
 void digit(int x, int y, int d, int s) { (void)x; (void)y; (void)d; (void)s; }
 
-static uint32_t pop(void) { assert(qt != qh); uint32_t p = q[qt]; qt = (qt + 1) & 63; return p; }
+static uint32_t pop(void) { assert(qt != qh); uint32_t p = q[qt]; qt = (qt + 1) & (QN - 1); return p; }
 #define MS(x) ((uint32_t)(x) * (F_CPU / 1000))
 
 static void buttons(uint16_t down) {  /* hold this button set long enough to pass the debounce */
     for (int i = 0; i < DEB; i++) { ui_button_row(8, down & 0xFF); ui_button_row(9, down >> 8); }
+}
+/* host side of the config protocol: split a SysEx into USB-MIDI packets, and reassemble the reply */
+static void host_send(const uint8_t *m, unsigned len) {
+    for (unsigned i = 0; i < len; i += 3) {
+        unsigned n = len - i < 3 ? len - i : 3;
+        uint32_t p = i + n < len ? 0x4 : 0x4 + n;
+        for (unsigned j = 0; j < n; j++) p |= (uint32_t)m[i + j] << (8 * (j + 1));
+        usb_midi_received(p);
+    }
+    cfg_poll();
+}
+static unsigned host_reply(uint8_t *out) {
+    unsigned len = 0;
+    while (qt != qh) {
+        uint32_t p = pop();
+        int n = (int[16]){[4] = 3, [5] = 1, [6] = 2, [7] = 3}[p & 0xF];
+        assert(n);
+        for (int j = 0; j < n; j++) out[len++] = p >> (8 * (j + 1));
+        if (out[len - 1] == 0xF7) break;
+    }
+    return len;
 }
 static void hit(int p) { pad_update(p, 3000); for (int i = 0; i < PAD_PEAK; i++) pad_update(p, 3000); }
 static void unhit(int p) { pad_update(p, 0); }
@@ -47,7 +69,7 @@ static void turn_knob1(double from, double to) {  /* knob 1 = analog item 0 */
 
 int main(void) {
     settings_defaults();
-    assert(valid(&S));
+    assert(settings_valid(&S));
     assert(velocity(500) == 127 && velocity(2000) == 127 && velocity(5000) == 100 && velocity(200000) == 1);
     for (uint32_t us = 0, prev = 127; us < 200000; us += 250) { assert(velocity(us) <= prev); prev = velocity(us); }
 
@@ -339,5 +361,147 @@ int main(void) {
     while (qt != qh) pop();
     S.clock_ext = 0;
     puts("external clock ok");
+
+    /* config protocol */
+    settings_defaults();
+    uint8_t r[80];
+    const uint8_t hello[] = {0xF0, 0x7D, 0x4D, 0x4B, 0x01, 0xF7};
+    host_send(hello, sizeof hello);
+    assert(host_reply(r) == 10 && r[4] == 0x41 && r[7] == SETTINGS_LAYOUT && r[8] == sizeof(settings_t) && r[9] == 0xF7);
+    const uint8_t get[] = {0xF0, 0x7D, 0x4D, 0x4B, 0x02, 0xF7};
+    host_send(get, sizeof get);
+    assert(host_reply(r) == 6 + 2 * sizeof(settings_t) && r[4] == 0x42);
+    for (unsigned i = 0; i < sizeof S; i++) assert((r[5 + 2 * i] << 4 | r[6 + 2 * i]) == ((uint8_t *)&S)[i]);
+    /* SET: change keys channel to 6 and tempo to 200 (> 127, needs the nibbles) */
+    uint8_t set[6 + 2 * sizeof(settings_t)] = {0xF0, 0x7D, 0x4D, 0x4B, 0x03};
+    settings_t t = S;
+    t.keys_ch = 5, t.tempo = 200;
+    for (unsigned i = 0; i < sizeof t; i++) set[5 + 2 * i] = ((uint8_t *)&t)[i] >> 4, set[6 + 2 * i] = ((uint8_t *)&t)[i] & 15;
+    set[sizeof set - 1] = 0xF7;
+    host_send(set, sizeof set);
+    assert(host_reply(r) == 7 && r[4] == 0x43 && r[5] == 0 && S.keys_ch == 5 && S.tempo == 200);
+    t.keys_ch = 20;  /* invalid */
+    set[5] = t.keys_ch >> 4, set[6] = t.keys_ch & 15;
+    host_send(set, sizeof set);
+    assert(host_reply(r) == 7 && r[5] == 2 && S.keys_ch == 5);
+    const uint8_t short_set[] = {0xF0, 0x7D, 0x4D, 0x4B, 0x03, 0, 1, 0xF7};
+    host_send(short_set, sizeof short_set);
+    assert(host_reply(r) == 7 && r[5] == 1);
+    const uint8_t defaults[] = {0xF0, 0x7D, 0x4D, 0x4B, 0x05, 0xF7};
+    host_send(defaults, sizeof defaults);
+    assert(host_reply(r) == 7 && r[4] == 0x45 && r[5] == 0 && S.keys_ch == 0 && S.tempo == 130);
+    const uint8_t unknown[] = {0xF0, 0x7D, 0x4D, 0x4B, 0x33, 0xF7};
+    host_send(unknown, sizeof unknown);
+    assert(host_reply(r) == 7 && r[4] == 0x73 && r[5] == 0x7F);
+    const uint8_t other[] = {0xF0, 0x47, 0x7F, 0x49, 0x66, 0x00, 0x01, 0x01, 0xF7};  /* Akai's own query: ignored */
+    host_send(other, sizeof other);
+    assert(qt == qh);
+    puts("config protocol ok");
+
+    /* ---- layout 4: per-pad tables, aftertouch, knob range/relative, joystick modes, swing/gate ---- */
+    settings_defaults();
+    while (qt != qh) pop();
+    S.pad_note[2] = 60, S.pad_cc[2] = 99, S.pad_pc[2] = 42, S.pad_note[8 + 2] = 70;
+    hit(2); assert((pop() >> 16 & 0xFF) == 60); unhit(2); pop();
+    buttons(1 << BTN_PAD_BANK); buttons(0);
+    hit(2); assert((pop() >> 16 & 0xFF) == 70); unhit(2); pop();
+    buttons(1 << BTN_PAD_BANK); buttons(0);
+    buttons(1 << BTN_CC); buttons(0);
+    hit(2); assert((pop() >> 16 & 0xFF) == 99); unhit(2); pop();
+    buttons(1 << BTN_CC); buttons(0); buttons(1 << BTN_PROG_CHANGE); buttons(0);
+    hit(2); assert((pop() >> 16 & 0xFF) == 42); unhit(2);
+    buttons(1 << BTN_PROG_CHANGE); buttons(0);
+    while (qt != qh) pop();
+    /* channel aftertouch: firmest held pad; back to 0 on release */
+    S.pad_at = 1;
+    hit(2); pop();
+    pad_update(2, 2000);
+    uint32_t at = pop();
+    assert((at & 0xFFFF) == (0x0Du | 0xD9u << 8) && (at >> 16 & 0x7F) == (2000 - 250) * 127 / (3800 - 250));
+    pad_update(2, 2005);
+    assert(qt == qh);                                       /* noise below 2 steps */
+    unhit(2);
+    assert(pop() == (0x0Du | 0xD9u << 8 | 0u << 16));       /* pressure back to 0 ... */
+    assert((pop() >> 8 & 0xF0) == 0x80);                    /* ... then note off */
+    S.pad_at = 2;                                           /* poly: per note */
+    hit(2); pop();
+    pad_update(2, 3800);
+    assert(pop() == (0x0Au | 0xA9u << 8 | 60u << 16 | 127u << 24));
+    unhit(2); pop(); pop();
+    S.pad_at = 0;
+    puts("pads layout 4 ok");
+
+    /* knobs: range 20..40, reversed 100..0, relative mode */
+    kn[1].init = 0; knob_update(1, TRI(0), TRI(90));
+    S.knob_min[1] = 20, S.knob_max[1] = 40;
+    for (double deg = 0; deg <= 360; deg += 2) knob_update(1, TRI(deg), TRI(deg + 90));
+    int lo = 127, hi = 0;
+    while (qt != qh) { int v = pop() >> 24; lo = v < lo ? v : lo; hi = v > hi ? v : hi; }
+    assert(lo >= 20 && hi <= 40 && hi > lo);
+    kn[2].init = 0; knob_update(2, TRI(0), TRI(90));
+    S.knob_min[2] = 100, S.knob_max[2] = 0;
+    for (double deg = 0; deg <= 90; deg += 2) knob_update(2, TRI(deg), TRI(deg + 90));
+    { int first = -1, last = -1; while (qt != qh) { int v = pop() >> 24; if (first < 0) first = v; last = v; }
+      assert(first <= 100 && last < first); }               /* turning up moves the value down */
+    kn[3].init = 0; knob_update(3, TRI(0), TRI(90));
+    S.knob_rel[3] = 1;
+    for (double deg = 0; deg <= 30; deg += 2) knob_update(3, TRI(deg), TRI(deg + 90));
+    while (qt != qh) assert((pop() >> 24) > 64);            /* clockwise = above 64 */
+    for (double deg = 30; deg >= 0; deg -= 2) knob_update(3, TRI(deg), TRI(deg + 90));
+    while (qt != qh) assert((pop() >> 24) < 64);
+    S.knob_rel[3] = 0;
+    puts("knobs layout 4 ok");
+
+    /* joystick: X as one CC (centre 64), Y with separate down/up CCs on the knob channel */
+    S.ctrl_ch = 5;
+    S.joy_x_mode = JOY_CC, S.joy_x_pos = 20;
+    joy_update(0, 2048 + 800);
+    assert(pop() == (0x0Bu | 0xB5u << 8 | 20u << 16 | 127u << 24));
+    joy_update(0, 2048 - 800);
+    assert(pop() == (0x0Bu | 0xB5u << 8 | 20u << 16 | 1u << 24));
+    joy_update(0, 2048);
+    assert(pop() >> 24 == 64);
+    S.joy_y_mode = JOY_DUAL, S.joy_y_neg = 30, S.joy_y_pos = 31;
+    joy_update(1, 2000 + 800);
+    assert(pop() == (0x0Bu | 0xB5u << 8 | 31u << 16 | 127u << 24) && qt == qh);
+    joy_update(1, 2000 - 800);
+    uint32_t a1 = pop(), a2 = pop();                        /* down CC up, up CC back to 0 */
+    assert(a1 == (0x0Bu | 0xB5u << 8 | 30u << 16 | 127u << 24) && a2 == (0x0Bu | 0xB5u << 8 | 31u << 16));
+    joy_update(1, 2000);
+    assert(pop() == (0x0Bu | 0xB5u << 8 | 30u << 16) && qt == qh);
+    settings_defaults();
+    puts("joystick layout 4 ok");
+
+    /* swing 75%: 1/16 steps alternate 36 and 12 pulses; gate 25% ends a step after a quarter of it */
+    S.swing = 75, S.gate = 25;
+    buttons(1 << BTN_ARP); buttons(0);
+    key_row(6, 1 << 3, MS(1300)); key_row(7, 1 << 3, MS(1305));
+    pop();                                                  /* first note at once (step 0, even) */
+    PULSES(8); assert(qt == qh);
+    PULSES(1); assert((pop() >> 8 & 0xF0) == 0x80);          /* gate 36 * 25% = 9 pulses */
+    PULSES(26); assert(qt == qh);
+    PULSES(1); assert((pop() >> 8 & 0xF0) == 0x90);          /* odd step starts at 36 */
+    PULSES(3); assert((pop() >> 8 & 0xF0) == 0x80);          /* gate 12 * 25% = 3 */
+    PULSES(8); assert(qt == qh);
+    PULSES(1); assert((pop() >> 8 & 0xF0) == 0x90 && qt == qh);  /* next even step at 48 */
+    key_row(6, 0, MS(1400));
+    buttons(1 << BTN_ARP); buttons(0);
+    while (qt != qh) pop();
+    settings_defaults();
+    puts("swing/gate ok");
+
+    /* menu shortcut: PAD NOTES FROM rewrites all 16 pad notes; leaving it alone keeps custom ones */
+    S.pad_note[5] = 1;
+    buttons(1 << BTN_PROG_SELECT); buttons(0);
+    buttons(1 << BTN_PROG_SELECT); buttons(0);
+    assert(S.pad_note[5] == 1);
+    save_req = 0;
+    buttons(1 << BTN_PROG_SELECT); buttons(0);
+    while (items[cur].v != &pad_base) { buttons(1 << BTN_OCT_UP); buttons(0); }
+    menu_adjust(12);
+    assert(S.pad_note[0] == 48 && S.pad_note[5] == 53 && S.pad_note[15] == 63);
+    buttons(1 << BTN_PROG_SELECT); buttons(0);
+    save_req = 0;
+    puts("menu layout 4 ok");
     return 0;
 }

@@ -4,7 +4,7 @@
 
 volatile uint8_t menu_on, menu_dirty, save_req;
 
-enum { NUM, NAMES, NOTE, JOYX };
+enum { NUM, NAMES, NOTE };
 typedef struct {
     const char *name;
     uint8_t *v;
@@ -21,15 +21,20 @@ static const char *const arp_modes[] = {"UP", "DOWN", "UPDOWN EXC", "UPDOWN INC"
 static const char *const divisions[] = {"1/4", "1/4T", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T"};
 static const char *const timeouts[] = {"5 S", "10 S", "30 S", "60 S", "NEVER"};
 static const char *const clocks[] = {"INTERNAL", "EXTERNAL"};
+static const char *const at_modes[] = {"OFF", "CHANNEL", "POLY"};
+static const char *const joy_modes[] = {"PITCH BEND", "CC", "DUAL CC"};
+static uint8_t pad_base;  /* "PAD NOTES FROM": changing it sets all 16 pad notes in a row */
 static uint8_t reset;
 
 static const item_t items[] = {
     {"KEYS CHANNEL", &S.keys_ch, 0, 15, NUM, 1, 0},
     {"PADS CHANNEL", &S.pads_ch, 0, 15, NUM, 1, 0},
+    {"KNOB/JOY CHANNEL", &S.ctrl_ch, 0, 15, NUM, 1, 0},
     {"TRANSPOSE", &S.transpose, 0, 24, NUM, -12, 0},
     {"KEY VELOCITY", &S.key_curve, 0, 3, NAMES, 0, curves},
     {"PAD VELOCITY", &S.pad_curve, 0, 3, NAMES, 0, curves},
-    {"PAD 1 NOTE", &S.pad_note, 0, 112, NOTE, 0, 0},
+    {"PAD AFTERTOUCH", &S.pad_at, 0, 2, NAMES, 0, at_modes},
+    {"PAD NOTES FROM", &pad_base, 0, 112, NOTE, 0, 0},
     {"KNOB 1 CC", &S.knob_cc[0], 0, 127, NUM, 0, 0},
     {"KNOB 2 CC", &S.knob_cc[1], 0, 127, NUM, 0, 0},
     {"KNOB 3 CC", &S.knob_cc[2], 0, 127, NUM, 0, 0},
@@ -39,14 +44,20 @@ static const item_t items[] = {
     {"KNOB 7 CC", &S.knob_cc[6], 0, 127, NUM, 0, 0},
     {"KNOB 8 CC", &S.knob_cc[7], 0, 127, NUM, 0, 0},
     {"KNOB SPEED", &S.knob_speed, 0, 2, NAMES, 0, speeds},
-    {"JOYSTICK X", &S.joy_x_cc, 0, 127, JOYX, 0, 0},
-    {"JOYSTICK Y CC", &S.joy_y_cc, 0, 127, NUM, 0, 0},
+    {"JOY X MODE", &S.joy_x_mode, 0, 2, NAMES, 0, joy_modes},
+    {"JOY X LEFT CC", &S.joy_x_neg, 0, 127, NUM, 0, 0},
+    {"JOY X RIGHT CC", &S.joy_x_pos, 0, 127, NUM, 0, 0},
+    {"JOY Y MODE", &S.joy_y_mode, 0, 2, NAMES, 0, joy_modes},
+    {"JOY Y DOWN CC", &S.joy_y_neg, 0, 127, NUM, 0, 0},
+    {"JOY Y UP CC", &S.joy_y_pos, 0, 127, NUM, 0, 0},
     {"CLOCK", &S.clock_ext, 0, 1, NAMES, 0, clocks},
     {"TEMPO BPM", &S.tempo, 40, 240, NUM, 0, 0},
     {"ARP MODE", &S.arp_mode, 0, 5, NAMES, 0, arp_modes},
     {"ARP/REPEAT RATE", &S.arp_div, 0, 7, NAMES, 0, divisions},
     {"ARP OCTAVES", &S.arp_oct, 0, 3, NUM, 1, 0},
     {"ARP LATCH", &S.arp_latch, 0, 1, NAMES, 0, offon},
+    {"ARP SWING %", &S.swing, 50, 75, NUM, 0, 0},
+    {"ARP GATE %", &S.gate, 5, 100, NUM, 0, 0},
     {"SCREEN OFF", &S.screen_off, 0, 4, NAMES, 0, timeouts},
     {"RESET ALL", &reset, 0, 1, NAMES, 0, yesno},
 };
@@ -55,7 +66,7 @@ static int cur;
 
 void menu_toggle(void) {
     if (!menu_on) {
-        menu_on = 1, cur = 0, reset = 0;
+        menu_on = 1, cur = 0, reset = 0, pad_base = S.pad_note[0];
     } else {
         menu_on = 0;
         if (reset) settings_defaults();
@@ -70,6 +81,8 @@ void menu_adjust(int d) {
     const item_t *it = &items[cur];
     int v = *it->v + d;
     *it->v = v < it->lo ? it->lo : v > it->hi ? it->hi : v;
+    if (it->v == &pad_base)
+        for (int i = 0; i < 16; i++) S.pad_note[i] = pad_base + i > 127 ? 127 : pad_base + i;
     menu_dirty = 1;
 }
 
@@ -92,7 +105,6 @@ void menu_draw(void) {
     switch (it->kind) {
     case NAMES: p = put_str(p, it->names[v]); break;
     case NOTE: p = put_num(p, v); *p++ = ' '; p = put_str(p, notes[v % 12]); p = put_num(p, v / 12 - 2); break;
-    case JOYX: p = v ? put_num(put_str(p, "CC "), v) : put_str(p, "PITCH BEND"); break;
     default: p = put_num(p, v + it->off);
     }
     *p = 0;

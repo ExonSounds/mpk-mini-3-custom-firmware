@@ -1,0 +1,14 @@
+/* Configuration over USB-MIDI SysEx, used by the desktop GUI (mpk3_cfg.py).
+ *   host -> keyboard:  F0 7D 4D 4B <cmd> [data] F7        (7D = non-commercial manufacturer ID, "MK")
+ *   keyboard -> host:  F0 7D 4D 4B <cmd | 0x40> [data] F7
+ * cmd 01 HELLO    -> fw version hi, lo, settings layout, settings size
+ *     02 GET      -> settings bytes as nibbles (high, low)
+ *     03 SET      <- settings nibbles; applied at once (not saved)      -> status
+ *     04 SAVE     -> status (written to flash and verified)
+ *     05 DEFAULTS -> status (applied, not saved)
+ * status: 0 ok, 1 wrong length, 2 invalid values / save failed, 0x7F unknown command */
+#pragma once
+#include <stdint.h>
+
+void cfg_rx(uint32_t pkt);  /* from the USB interrupt: one USB-MIDI packet with a SysEx CIN (4-7) */
+void cfg_poll(void);        /* from the main loop: runs a complete command */

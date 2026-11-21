@@ -4,6 +4,7 @@
  * pad: note, velocity, peak/10; knob: CC, value, knob #; joystick: value MSB/CC, LSB/value); square = USB up. */
 #include "analog.h"
 #include "board.h"
+#include "cfg.h"
 #include "menu.h"
 #include "seq.h"
 #include "settings.h"
@@ -11,11 +12,12 @@
 #include "usb_midi.h"
 
 /* ---- MIDI event queue: SysTick (producer) -> main loop (consumer) ---- */
-static volatile uint32_t q[64];
+#define QN 256  /* power of two; a settings reply alone is ~20 packets */
+static volatile uint32_t q[QN];
 static volatile uint8_t qh, qt;
 
 void midi_push(uint32_t pkt) {
-    uint8_t n = (qh + 1) & 63;
+    uint8_t n = (qh + 1) & (QN - 1);
     if (n != qt) { q[qh] = pkt; qh = n; }  /* full: drop (nobody is reading the port) */
 }
 
@@ -25,6 +27,7 @@ void ui_activity(void) { last_use = ticks; }
 /* From the USB interrupt (same priority as SysTick, so it never interrupts the sequencer). */
 void usb_midi_received(uint32_t pkt) {
     if ((pkt & 0xF) == 0xF) seq_realtime(pkt >> 8 & 0xFF);  /* CIN 0xF: single byte, e.g. clock F8 / start FA */
+    else cfg_rx(pkt);                                       /* SysEx from the configuration GUI */
 }
 
 static volatile int16_t shown[3];
@@ -110,8 +113,9 @@ int main(void) {
     for (;;) {
         uint32_t buf[16];
         int n = 0;
-        for (uint8_t i = qt; i != qh && n < 16; i = (i + 1) & 63) buf[n++] = q[i];
-        if (n && usb_midi_send(buf, n)) qt = (qt + n) & 63;
+        for (uint8_t i = qt; i != qh && n < 16; i = (i + 1) & (QN - 1)) buf[n++] = q[i];
+        if (n && usb_midi_send(buf, n)) qt = (qt + n) & (QN - 1);
+        cfg_poll();
 
         if (save_req) {  /* menu closed: store settings (interrupts are off for the ~20-40 ms erase) */
             save_req = 0;

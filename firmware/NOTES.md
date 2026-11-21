@@ -147,7 +147,16 @@ LEDs 0, 1 and 8–15 get full PWM range; the rest are capped at brightness 4 (pr
 - v6.00, tested 2026-11-21: FULL LEVEL also forces keys to velocity 127. CLOCK = EXTERNAL follows MIDI clock
   (F8 = 4 pulses; each F8 sets the count to exactly 4×clocks, up to 3 pulses interpolated in between) and
   Start/Continue/Stop from the host (EP1 OUT, CIN 0xF). With 100 BPM clock sent from the PC: median step 150 ms
-  (1/16), notes on average 0.2 ms from a clock, silent after Stop. Not done: swing.
+  (1/16), notes on average 0.2 ms from a clock, silent after Stop.
+- v7.00, tested 2026-11-21: settings over SysEx (fw/cfg.h): `F0 7D 4D 4B cmd … F7` (7D = non-commercial ID);
+  HELLO / GET / SET / SAVE / DEFAULTS, settings as nibbles (tempo > 127). Reassembled from USB-MIDI CIN 4–7 in the
+  USB interrupt, run from the main loop (SAVE writes flash); MIDI queue 64 → 256 packets. Checked from the PC with
+  mpk3_cfg.py: read-back exact, SAVE verified, invalid SET rejected by the firmware (status 2).
+- v8.00 (settings layout 4, 104 bytes), tested 2026-11-21: per-pad note/CC/program (16), per-knob CC/min/max/
+  relative, joystick mode per axis (pitch / one CC / CC per direction), knob+joystick channel, pad aftertouch
+  (off/channel/poly), arp swing 50–75 % and gate 5–100 %. On the keyboard: knob range 20–40 kept, joystick down/up
+  on CC 30/31, channel aftertouch 0–117, pad A3 custom note 60, relative knob 63/65. Struct copies need
+  memcpy/memset (provided in board.c; no libc).
 - The bootloader jumps to `[0x0800A004]` with interrupts disabled and without loading SP, so the app must set SP and VTOR itself.
 - OLED: frames pinned to pages 0–3 are invisible. The glass shows the other half of the controller's 64-row memory,
   or which half is visible varies. Writing the frame to pages 0–7 (twice) works. Stock avoids the problem by letting frames alternate.

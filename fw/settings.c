@@ -1,13 +1,17 @@
 #include "settings.h"
+#include <stddef.h>
 #include "board.h"
 
 settings_t S;
 
 /* Defaults = stock program 1 ("Live"). */
 void settings_defaults(void) {
-    S = (settings_t){.keys_ch = 0, .pads_ch = 9, .transpose = 12, .key_curve = CURVE_NORMAL, .pad_curve = CURVE_NORMAL,
-                     .pad_note = 36, .knob_cc = {1, 2, 3, 4, 5, 6, 7, 8}, .knob_speed = 1, .joy_x_cc = 0, .joy_y_cc = 1,
-                     .arp_mode = 0, .arp_div = 4, .arp_oct = 0, .arp_latch = 0, .tempo = 130, .screen_off = 1, .clock_ext = 0};
+    S = (settings_t){.keys_ch = 0, .pads_ch = 9, .ctrl_ch = 0, .transpose = 12, .key_curve = CURVE_NORMAL,
+                     .pad_curve = CURVE_NORMAL, .pad_at = 0, .knob_speed = 1,
+                     .joy_x_mode = JOY_PITCH, .joy_y_mode = JOY_DUAL, .joy_y_neg = 1, .joy_y_pos = 1,
+                     .arp_div = 4, .tempo = 130, .swing = 50, .gate = 50, .screen_off = 1};
+    for (int i = 0; i < 8; i++) S.knob_cc[i] = 1 + i, S.knob_max[i] = 127;
+    for (int i = 0; i < 16; i++) S.pad_note[i] = 36 + i, S.pad_cc[i] = 16 + i, S.pad_pc[i] = i;
 }
 
 int curve(int v, int which) {
@@ -20,7 +24,7 @@ int curve(int v, int which) {
 }
 
 /* Record: magic, settings bytes, sum16 of the settings bytes. */
-#define MAGIC 0x334B504Du  /* "MPK3" (v6 layout) */
+#define MAGIC (0x304B504Du + ((uint32_t)SETTINGS_LAYOUT << 24))  /* "MPK" + layout digit */
 
 static uint16_t sum(const uint8_t *p, int n) {
     uint16_t s = 0;
@@ -28,13 +32,15 @@ static uint16_t sum(const uint8_t *p, int n) {
     return s;
 }
 
-static int valid(const settings_t *s) {
+int settings_valid(const settings_t *s) {
     const uint8_t *c = (const uint8_t *)s;
-    static const uint8_t lim[] = {15, 15, 24, 3, 3, 112, 127, 127, 127, 127, 127, 127, 127, 127, 2, 127, 127,
-                                  5, 7, 3, 1, 240, 4, 1};
-    _Static_assert(sizeof lim == sizeof(settings_t), "one limit per settings byte");
-    for (unsigned i = 0; i < sizeof *s; i++) if (c[i] > lim[i]) return 0;
-    return s->tempo >= 40;
+    static const uint8_t lim[] = {15, 15, 15, 24, 3, 3, 2, 2, 2, 127, 127, 2, 127, 127, 5, 7, 3, 1, 240, 75, 100, 4, 1};
+    _Static_assert(sizeof lim == offsetof(settings_t, knob_cc), "one limit per single setting");
+    for (unsigned i = 0; i < sizeof lim; i++) if (c[i] > lim[i]) return 0;
+    for (unsigned i = offsetof(settings_t, knob_cc); i < offsetof(settings_t, reserved); i++)
+        if (c[i] > 127) return 0;
+    for (int i = 0; i < 8; i++) if (s->knob_rel[i] > 1) return 0;
+    return s->tempo >= 40 && s->swing >= 50 && s->gate >= 5;
 }
 
 void settings_load(void) {
@@ -43,7 +49,7 @@ void settings_load(void) {
     uint8_t *d = (uint8_t *)&s;
     for (unsigned i = 0; i < sizeof s; i++) d[i] = f[4 + i];
     uint16_t stored = f[4 + sizeof s] | f[5 + sizeof s] << 8;
-    if (*(const uint32_t *)f == MAGIC && stored == sum(d, sizeof s) && valid(&s)) S = s;
+    if (*(const uint32_t *)f == MAGIC && stored == sum(d, sizeof s) && settings_valid(&s)) S = s;
     else settings_defaults();
 }
 
