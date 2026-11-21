@@ -11,6 +11,7 @@
  *     08 IMAGE_CLEAR -> status (idle image back to the built-in logo; save with SAVE)
  *     09 PROG_WRITE  <- block hi, lo (64-byte blocks), 64 bytes as nibbles -> status   (RAM program: prog_api.h)
  *     0A PROG_RUN    <- size, sum16 (3 x 7 bits each) -> status, then the program starts
+ *     0B PROG_MSG    <- up to 200 bytes for the running program -> its answer (none: no program listening)
  * status: 0 ok, 1 wrong length, 2 invalid values / save failed / bad program, 3 busy (a program is running),
  *         0x7F unknown command */
 #pragma once

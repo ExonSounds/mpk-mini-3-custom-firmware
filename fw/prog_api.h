@@ -13,9 +13,14 @@
 #define PROG_BASE 0x20002000u  /* RAM above the firmware's 8 KB (link.ld) */
 #define PROG_SIZE 0x6000u      /* 24 KB, up to the end of the 32 KB RAM */
 #define PROG_MAGIC 0x50524B4Du /* "MKRP" little-endian */
-#define PROG_API_VERSION 1
+#define PROG_API_VERSION 2     /* 2: on_message */
+#define PROG_MSG_MAX 200       /* bytes in a host message (all < 128) */
+#define PROG_REPLY_MAX 64      /* bytes a program may answer with (all < 128) */
 
 typedef struct prog_api prog_api_t;
+/* A message from the host (SysEx 0B, mpk3_cfg.Device.message): handle it, write the answer to out, return its
+ * length (1..PROG_REPLY_MAX). Called from api->poll(), so it never interrupts the program's own drawing. */
+typedef unsigned (*prog_msg_fn)(const uint8_t *in, unsigned n, uint8_t *out);
 
 typedef struct {
     uint32_t magic;                       /* PROG_MAGIC */
@@ -54,4 +59,7 @@ struct prog_api {
     void (*rect)(int x, int y, int w, int h);
     int (*text)(int x, int y, const char *s, int scale);  /* 5x7 font, 6*scale px per char; returns end x */
     void (*flush)(void);              /* show fb on the screen (~2 ms) */
+
+    /* version 2 */
+    prog_msg_fn *on_message;          /* set *on_message = your handler to get host messages; 0 = none */
 };

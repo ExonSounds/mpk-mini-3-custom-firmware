@@ -20,6 +20,10 @@
 
 static int resets;
 void system_reset(void) { resets++; }
+static unsigned test_echo(const uint8_t *in, unsigned n, uint8_t *out) {  /* answers: n, last byte, 0xFF masked */
+    out[0] = n, out[1] = in[n - 1], out[2] = 0xFF;
+    return 3;
+}
 
 /* stubs for the board/USB functions main.c, analog.c, ui.c and menu.c link against */
 static uint32_t led_bits;
@@ -695,5 +699,16 @@ int main(void) {
     prog_running = prog_own_input = 0;
     while (qt != qh) pop();
     puts("ram programs ok");
+
+    /* host messages to a running program (SysEx 0B): answered by its handler, empty when nobody listens */
+    uint8_t hm[] = {0xF0, 0x7D, 0x4D, 0x4B, 0x0B, 5, 6, 0xF7};
+    host_send(hm, sizeof hm);
+    assert(host_reply(pr) == 6 && pr[4] == 0x4B);                    /* no program: empty answer */
+    prog_running = 1;
+    on_message = test_echo;
+    host_send(hm, sizeof hm);
+    assert(host_reply(pr) == 9 && pr[5] == 2 && pr[6] == 6 && pr[7] == 0x7F && pr[8] == 0xF7);
+    prog_running = 0, on_message = 0;
+    puts("program messages ok");
     return 0;
 }

@@ -9,3 +9,4 @@ extern volatile uint8_t prog_run_req;    /* set by prog_start: main loop calls p
 uint8_t prog_write(unsigned off, const uint8_t *nibbles);  /* 64 bytes at off -> cfg status (3 = busy) */
 uint8_t prog_start(unsigned size, unsigned sum16);         /* check what was uploaded -> cfg status */
 void prog_exec(void);                                      /* main loop: run it until it returns */
+unsigned prog_message(const uint8_t *in, unsigned n, uint8_t *out);  /* SysEx 0B -> program; 0 = nobody listens */

@@ -47,17 +47,29 @@ uint8_t prog_start(unsigned size, unsigned sum16) {
 
 static void poll(void) { midi_flush(); cfg_poll(); }
 
+static prog_msg_fn on_message;
+
+unsigned prog_message(const uint8_t *in, unsigned n, uint8_t *out) {
+    if (!prog_running || !on_message || n > PROG_MSG_MAX) return 0;
+    unsigned r = on_message(in, n, out);
+    if (r > PROG_REPLY_MAX) r = PROG_REPLY_MAX;
+    for (unsigned i = 0; i < r; i++) out[i] &= 0x7F;  /* keep the SysEx valid whatever the program wrote */
+    return r;
+}
+
 static const prog_api_t api = {
     .version = PROG_API_VERSION, .ticks = &ticks, .poll = poll,
     .own_input = &prog_own_input, .keys = keys_level, .pads = pads_level, .knobs = knob_state, .joystick = joy_state,
     .buttons = &ui_held, .midi_send = midi_queue, .led_level = ui_led_level,
     .fb = fb, .fb_clear = fb_clear, .px = px, .rect = rect, .text = text, .flush = oled_flush,
+    .on_message = &on_message,
 };
 
 void prog_exec(void) {
     prog_run_req = 0;
     midi_flush();  /* the RUN reply */
     prog_own_input = 0;
+    on_message = 0;
     prog_running = 1;
     ui_leds_off = 0;
     oled_power(1);
@@ -68,5 +80,6 @@ void prog_exec(void) {
 #endif
     prog_running = 0;
     prog_own_input = 0;
+    on_message = 0;
     ui_leds_reset();  /* firmware LED state back, program's LEDs off */
 }

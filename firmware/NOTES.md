@@ -173,6 +173,11 @@ LEDs 0, 1 and 8–15 get full PWM range; the rest are capped at brightness 4 (pr
   "MKRP" header checked), called from the main loop with an API table (prog_api.h). Code runs from SRAM fine,
   and the upper 24 KB exist (the AT32F415RB has 32 KB). PROG SELECT held 2 s resets (AIRCR SYSRESETREQ);
   HardFault/MemManage/BusFault/UsageFault reset too instead of hanging.
+- v9.80, tested 2026-11-21: SysEx 0B PROG_MSG passes up to 200 bytes to the running program's on_message handler
+  (API v2) and replies with its answer (empty: nobody listening). The remote screen program uses it for frames
+  (4 x 128 bytes, 7-bit packed) and controls: ~110 frames/s round trip over USB. HELLO sends the version as two
+  7-bit bytes, so 9.80 (0x0980) reported 9.00; the next build is 10.00 and cfg.c refuses versions with a byte
+  >= 0x80. 10.00 is 9.80 with that fix only.
 - The bootloader jumps to `[0x0800A004]` with interrupts disabled and without loading SP, so the app must set SP and VTOR itself.
 - OLED: frames pinned to pages 0–3 are invisible. The glass shows the other half of the controller's 64-row memory,
   or which half is visible varies. Writing the frame to pages 0–7 (twice) works. Stock avoids the problem by letting frames alternate.

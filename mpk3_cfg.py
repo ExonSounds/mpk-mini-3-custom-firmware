@@ -15,7 +15,7 @@ from mpk3 import MPK
 HDR = bytes([0xF0, 0x7D, 0x4D, 0x4B])
 LAYOUT = 4  # fw/settings.h SETTINGS_LAYOUT
 HELLO, GET, SET, SAVE, DEFAULTS, IMAGE_WRITE, IMAGE_READ, IMAGE_CLEAR = 1, 2, 3, 4, 5, 6, 7, 8
-PROG_WRITE, PROG_RUN = 9, 10
+PROG_WRITE, PROG_RUN, PROG_MSG = 9, 10, 11
 IMG_W, IMG_H = 128, 32  # idle image: 512 bytes, byte (y // 8) * 128 + x, bit y % 8 (the OLED's own layout)
 PROG_BASE, PROG_SIZE, PROG_MAGIC = 0x20002000, 0x6000, b"MKRP"  # fw/prog_api.h
 STATUS = {0: "ok", 1: "wrong length", 2: "invalid values (or saving failed, or bad program)",
@@ -235,20 +235,25 @@ class Device(MPK):
         fd = self._open()
         try:
             self._drain(fd)
-            os.write(fd, msg(cmd, data))
-            buf, end = b"", time.monotonic() + timeout
-            while time.monotonic() < end:
-                if select.select([fd], [], [], 0.05)[0]:
-                    try:
-                        buf += os.read(fd, 4096)
-                    except BlockingIOError:
-                        continue
-                    reply = parse_reply(buf, cmd)
-                    if reply is not None:
-                        return reply
-            raise TimeoutError("no reply from the keyboard - is it running the custom firmware v8 or newer?")
+            return self.exchange(fd, cmd, data, timeout)
         finally:
             os.close(fd)
+
+    @staticmethod
+    def exchange(fd, cmd, data=b"", timeout=2.0):
+        """One command on a port that is already open (from _open): send it and return the reply's data."""
+        os.write(fd, msg(cmd, data))
+        buf, end = b"", time.monotonic() + timeout
+        while time.monotonic() < end:
+            if select.select([fd], [], [], 0.05)[0]:
+                try:
+                    buf += os.read(fd, 4096)
+                except BlockingIOError:
+                    continue
+                reply = parse_reply(buf, cmd)
+                if reply is not None:
+                    return reply
+        raise TimeoutError("no reply from the keyboard - is it running the custom firmware v8 or newer?")
 
     def _status(self, cmd, data=b""):
         r = self.request(cmd, data, timeout=3.0)

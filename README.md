@@ -9,7 +9,7 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
 > **Not affiliated with Akai Professional or inMusic.** "Akai" and "MPK" are their trademarks. Flashing custom
 > firmware may void your warranty. Use at your own risk; see the [licence](LICENSE).
 
-## Features (firmware v9.70)
+## Features (firmware v10.00)
 
 - **Keys:** 25 keys with velocity from the two-contact timing, octave −4…+4 (OCT−/OCT+, both = reset),
   transpose ±12, velocity curves (soft / normal / hard / fixed).
@@ -39,6 +39,18 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
   keys, pads, knobs, joystick, buttons, LEDs, screen and MIDI out through a small API (`fw/prog_api.h`), can take
   the inputs over from the firmware, or drive the hardware directly. Holding PROG SELECT for 2 s, a crash or a
   replug brings the normal firmware back.
+- **Game market** (`mpk3_market.py`): a desktop app that loads games and apps onto the keyboard, unloading the one
+  before, with a live picture of the keyboard's screen. Most run on this computer and use the keyboard as their
+  screen and controller (a small RAM program, `programs/remote.c`, streams frames in and controls out):
+  - **Turbo Loop** — top-down racing: joystick X steers, PAD 8 gas, PAD 4 brake/reverse, three laps.
+  - **Cave Glide** — fly through a narrowing cave with knob 1.
+  - **Key Catch** — play the key under each falling note.
+  - **Beat Lanes** — hit pads 1–4 in time as beats cross the line.
+  - **Binary Typer** — opens a terminal window and types into it from the pads in binary (PAD 1 = 0, PAD 2 = 1,
+    eight bits per character, PAD 3 deletes, PAD 4 Enter).
+  - **Joystick Mouse** — the joystick moves this computer's mouse pointer, PAD 8 left-clicks, PAD 4 right-clicks
+    (a virtual mouse via `/dev/uinput`, which your user must be able to write).
+  - **Fifths** — a RAM program that runs on the keyboard itself (`programs/demo.c`).
 
 Not done yet: saving more than one setup (presets), flashing from the GUI.
 
@@ -97,12 +109,26 @@ python3 mpk3_cfg.py run programs/demo.bin
 A program runs in the same chip as the bootloader: one that writes to flash below `0x0800A000` can brick the
 keyboard (recovery then needs SWD). Programs that only use the API can't.
 
+The game market, or one game straight from the terminal (needs `make -C programs` first):
+
+```bash
+python3 mpk3_market.py
+python3 -m games race                 # or cave | keycatch | beats | binterm | mouse
+```
+
+A game is a class with `step(controls, dt)` and `render(screen)` in `games/`, listed in `games/__init__.py`
+(`games/cave.py` is a short example). Only one program can hold the keyboard's MIDI port at a time, so close the
+settings GUI while the market has something loaded.
+
 ## Repository layout
 
 | Path | What |
 |------|------|
 | `fw/` | Custom firmware (C, no vendor SDK): `board.*` clocks/pins/OLED/LEDs, `usb_midi.*` USB-MIDI driver, `analog.*` pads/knobs/joystick, `ui.*` buttons/LEDs, `menu.*` + `settings.*` on-device menu and flash storage, `seq.*` clock/arpeggiator/note repeat, `cfg.*` SysEx settings protocol, `gfx.*`/`views.*`/`pong.*` drawing, live screens and idle game, `prog.*` + `prog_api.h` RAM programs, `test.c` hardware test firmware |
-| `programs/` | RAM programs: start-up code, linker script and a demo (`make -C programs`) |
+| `programs/` | RAM programs: start-up code, linker script, a demo and the remote screen (`make -C programs`) |
+| `mpk3_market.py`, `games/` | Game market and the games/apps it loads |
+| `mpk3_remote.py` | Keyboard as remote screen and controller for programs on this computer |
+| `mpk3_termbridge.py` | Shell-in-a-window bridge used by Binary Typer |
 | `fw/mkimage.py` | Wraps the app into a full image with the stock bootloader region and a valid trailer |
 | `mpk3_flash.py` | Flasher for the stock USB HID bootloader |
 | `mpk3_gui.py`, `mpk3_cfg.py` | Desktop GUI and command line for the custom firmware's settings (SysEx protocol in `fw/cfg.h`) |

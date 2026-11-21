@@ -3,11 +3,14 @@
 #include "board.h"
 #include "menu.h"
 #include "prog.h"
+#include "prog_api.h"
 #include "settings.h"
 
 #ifndef FW_VERSION
 #define FW_VERSION 0
 #endif
+/* HELLO sends the version as two 7-bit bytes: 9.80 (0x0980) went out as 9.00. Pick versions like 10.00-10.70. */
+_Static_assert((FW_VERSION & 0x80) == 0 && FW_VERSION >> 8 < 0x80, "FW_VERSION bytes must be < 0x80");
 
 static const uint8_t hdr[4] = {0xF0, 0x7D, 0x4D, 0x4B};
 #define MAXLEN (6 + 2 * sizeof(settings_t))  /* header + cmd + nibbles + F7 */
@@ -135,6 +138,11 @@ void cfg_poll(void) {
         status(cmd, prog_start((unsigned)data[0] << 14 | data[1] << 7 | data[2],
                                (unsigned)data[3] << 14 | data[4] << 7 | data[5]));
         break;
+    case 0x0B: {  /* PROG_MSG: any 7-bit bytes to the running program -> its answer (empty: no program listens) */
+        uint8_t out[PROG_REPLY_MAX];
+        reply(cmd, out, prog_message(data, n, out));
+        break;
+    }
     default: status(cmd, 0x7F);
     }
 }
