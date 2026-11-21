@@ -1,6 +1,7 @@
 """Configure the MPK mini 3 *custom* firmware over USB-MIDI SysEx (protocol: fw/cfg.h).
 
-usage: python3 mpk3_cfg.py info | get | set KEY=VALUE ... | save | defaults
+usage: python3 mpk3_cfg.py info | get | set KEY=VALUE ... | save | defaults | run PROGRAM.bin
+  run: upload a RAM program (programs/, API in fw/prog_api.h) and start it; it is gone after a replug
 """
 import glob
 import os
@@ -14,8 +15,25 @@ from mpk3 import MPK
 HDR = bytes([0xF0, 0x7D, 0x4D, 0x4B])
 LAYOUT = 4  # fw/settings.h SETTINGS_LAYOUT
 HELLO, GET, SET, SAVE, DEFAULTS, IMAGE_WRITE, IMAGE_READ, IMAGE_CLEAR = 1, 2, 3, 4, 5, 6, 7, 8
+PROG_WRITE, PROG_RUN = 9, 10
 IMG_W, IMG_H = 128, 32  # idle image: 512 bytes, byte (y // 8) * 128 + x, bit y % 8 (the OLED's own layout)
-STATUS = {0: "ok", 1: "wrong length", 2: "invalid values (or saving failed)", 0x7F: "unknown command"}
+PROG_BASE, PROG_SIZE, PROG_MAGIC = 0x20002000, 0x6000, b"MKRP"  # fw/prog_api.h
+STATUS = {0: "ok", 1: "wrong length", 2: "invalid values (or saving failed, or bad program)",
+          3: "busy (a RAM program is running)", 0x7F: "unknown command"}
+
+
+def program_messages(prog):
+    """(cmd, data) messages that upload a RAM program binary and start it; checks it first."""
+    if prog[:4] != PROG_MAGIC:
+        raise ValueError("not a RAM program (no MKRP header; build it with make -C programs)")
+    if len(prog) > PROG_SIZE:
+        raise ValueError(f"program is {len(prog)} bytes; RAM programs can be at most {PROG_SIZE}")
+    padded = prog + bytes(-len(prog) % 64)
+    msgs = [(PROG_WRITE, bytes([b >> 7, b & 127]) + to_nibbles(padded[b * 64:b * 64 + 64]))
+            for b in range(len(padded) // 64)]
+    size, s = len(prog), sum(prog) & 0xFFFF
+    msgs.append((PROG_RUN, bytes([size >> 14, size >> 7 & 127, size & 127, s >> 14, s >> 7 & 127, s & 127])))
+    return msgs
 
 
 def msg(cmd, data=b""):
@@ -280,9 +298,14 @@ class Device(MPK):
     def clear_image(self):
         self._status(IMAGE_CLEAR)
 
+    def run_program(self, prog):
+        """Upload a RAM program and start it (it runs until it returns, PROG SELECT is held 2 s, or a replug)."""
+        for cmd, data in program_messages(prog):
+            self._status(cmd, data)
+
 
 def main(argv):
-    if not argv or argv[0] not in ("info", "get", "set", "save", "defaults"):
+    if not argv or argv[0] not in ("info", "get", "set", "save", "defaults", "run") or (argv[0] == "run") != (len(argv) == 2):
         sys.exit(__doc__)
     d = Device()
     info = d.hello()
@@ -303,6 +326,10 @@ def main(argv):
     elif argv[0] == "save":
         d.save()
         print("saved")
+    elif argv[0] == "run":
+        prog = open(argv[1], "rb").read()
+        d.run_program(prog)
+        print(f"running {argv[1]} ({len(prog)} bytes) - hold PROG SELECT 2 s or replug to stop it")
     else:
         d.defaults()
         print("defaults applied (not saved)")

@@ -9,3 +9,7 @@ fw/test_keys
 # Personal program dumps made by mpk3_tui.py
 backups/
 __pycache__/
+# RAM program build output
+programs/*.bin
+programs/*.elf
+programs/*.o

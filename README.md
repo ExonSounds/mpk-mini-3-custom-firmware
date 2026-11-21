@@ -9,7 +9,7 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
 > **Not affiliated with Akai Professional or inMusic.** "Akai" and "MPK" are their trademarks. Flashing custom
 > firmware may void your warranty. Use at your own risk; see the [licence](LICENSE).
 
-## Features (firmware v9.60)
+## Features (firmware v9.70)
 
 - **Keys:** 25 keys with velocity from the two-contact timing, octave −4…+4 (OCT−/OCT+, both = reset),
   transpose ±12, velocity curves (soft / normal / hard / fixed).
@@ -35,6 +35,10 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
   (inverted every minute against burn-in), or switches the screen and all LEDs off. Pick it in the menu or the GUI.
 - **Idle picture:** draw it pixel by pixel in the GUI (left button draws, right erases, clear, invert), or load any
   picture (scaled and dithered to 128×32); it is stored in the keyboard's flash. The built-in logo is the default.
+- **RAM programs:** upload your own code over USB and run it from RAM (24 KB) without flashing. Programs get the
+  keys, pads, knobs, joystick, buttons, LEDs, screen and MIDI out through a small API (`fw/prog_api.h`), can take
+  the inputs over from the firmware, or drive the hardware directly. Holding PROG SELECT for 2 s, a crash or a
+  replug brings the normal firmware back.
 
 Not done yet: saving more than one setup (presets), flashing from the GUI.
 
@@ -82,11 +86,23 @@ python3 mpk3_gui.py                   # GUI: Connect, edit (applied live), Save 
 python3 mpk3_cfg.py get               # or the command line: info | get | set KEY=VALUE ... | save | defaults
 ```
 
+Run a RAM program (`programs/demo.c`: keys play with a fifth on top, pads light by pressure, joystick ball, knob
+bars; PROG SELECT returns). Write your own as `programs/<name>.c` with `int program(const prog_api_t *api)`:
+
+```bash
+make -C programs
+python3 mpk3_cfg.py run programs/demo.bin
+```
+
+A program runs in the same chip as the bootloader: one that writes to flash below `0x0800A000` can brick the
+keyboard (recovery then needs SWD). Programs that only use the API can't.
+
 ## Repository layout
 
 | Path | What |
 |------|------|
-| `fw/` | Custom firmware (C, no vendor SDK): `board.*` clocks/pins/OLED/LEDs, `usb_midi.*` USB-MIDI driver, `analog.*` pads/knobs/joystick, `ui.*` buttons/LEDs, `menu.*` + `settings.*` on-device menu and flash storage, `seq.*` clock/arpeggiator/note repeat, `cfg.*` SysEx settings protocol, `gfx.*`/`views.*`/`pong.*` drawing, live screens and idle game, `test.c` hardware test firmware |
+| `fw/` | Custom firmware (C, no vendor SDK): `board.*` clocks/pins/OLED/LEDs, `usb_midi.*` USB-MIDI driver, `analog.*` pads/knobs/joystick, `ui.*` buttons/LEDs, `menu.*` + `settings.*` on-device menu and flash storage, `seq.*` clock/arpeggiator/note repeat, `cfg.*` SysEx settings protocol, `gfx.*`/`views.*`/`pong.*` drawing, live screens and idle game, `prog.*` + `prog_api.h` RAM programs, `test.c` hardware test firmware |
+| `programs/` | RAM programs: start-up code, linker script and a demo (`make -C programs`) |
 | `fw/mkimage.py` | Wraps the app into a full image with the stock bootloader region and a valid trailer |
 | `mpk3_flash.py` | Flasher for the stock USB HID bootloader |
 | `mpk3_gui.py`, `mpk3_cfg.py` | Desktop GUI and command line for the custom firmware's settings (SysEx protocol in `fw/cfg.h`) |

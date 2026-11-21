@@ -7,6 +7,7 @@
 #include "cfg.h"
 #include "menu.h"
 #include "pong.h"
+#include "prog.h"
 #include "seq.h"
 #include "settings.h"
 #include "ui.h"
@@ -18,12 +19,14 @@
 static volatile uint32_t q[QN];
 static volatile uint8_t qh, qt;
 
-void midi_push(uint32_t pkt) {
+void midi_queue(uint32_t pkt) {
     uint8_t n = (qh + 1) & (QN - 1);
     if (n != qt) { q[qh] = pkt; qh = n; }  /* full: drop (nobody is reading the port) */
 }
+void midi_push(uint32_t pkt) { if (!prog_own_input) midi_queue(pkt); }  /* a RAM program can take the inputs */
 
-static volatile uint32_t ticks, last_use;  /* SysTick count (20 kHz) and when anything was last used */
+volatile uint32_t ticks;                   /* also read by RAM programs (prog.c) */
+static volatile uint32_t last_use;  /* SysTick count (20 kHz) and when anything was last used */
 void ui_activity(void) { last_use = ticks; }
 
 /* From the USB interrupt (same priority as SysTick, so it never interrupts the sequencer). */
@@ -115,6 +118,8 @@ void SysTick_Handler(void) {
     ui_led_tick();
 }
 
+void keys_level(uint8_t vel[25]) { for (int k = 0; k < 25; k++) vel[k] = kstate[k] == ON ? kvel[k] : 0; }
+
 static int differs(const void *a, const void *b, unsigned n) {  /* no libc memcmp on the target */
     const uint8_t *x = a, *y = b;
     while (n--) if (*x++ != *y++) return 1;
@@ -128,6 +133,7 @@ static void send_queued(void) {
     if (n && usb_midi_send(buf, n)) qt = (qt + n) & (QN - 1);
 }
 
+void midi_flush(void) { send_queued(); }
 void oled_flush_hook(void) { send_queued(); }  /* keeps MIDI timing tight while a frame is drawn */
 
 int main(void) {
@@ -148,6 +154,12 @@ int main(void) {
     for (;;) {
         send_queued();
         cfg_poll();
+        if (prog_run_req) {  /* RAM program uploaded and checked: it has the keyboard until it returns */
+            prog_exec();
+            ui_activity();
+            shown_dirty = 1, menu_dirty = 1, in_pong = 0, view = V_HOME;
+            continue;
+        }
 
         if (save_req) {  /* menu closed: store settings (interrupts are off for the ~20-40 ms erase) */
             save_req = 0;
@@ -210,7 +222,7 @@ int main(void) {
             shown_dirty = 0, was_configured = cfg, last_draw = ticks;
             if (view == V_KEYS) {
                 uint8_t level[25];
-                for (int k = 0; k < 25; k++) level[k] = kstate[k] == ON ? kvel[k] : 0;
+                keys_level(level);
                 draw_keys(level);
             } else if (view == V_PADS) {
                 uint8_t level[8];

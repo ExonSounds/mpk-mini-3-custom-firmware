@@ -184,13 +184,19 @@ __attribute__((noreturn, used)) void start(void) {
     for (;;) {}
 }
 
+void system_reset(void) {
+    R32(0xE000ED0C) = 0x05FA0004;  /* AIRCR SYSRESETREQ */
+    for (;;) {}
+}
+
 void Default_Handler(void) { for (;;) {} }
 void SysTick_Handler(void) __attribute__((weak, alias("Default_Handler")));
 void OTGFS_IRQHandler(void) __attribute__((weak, alias("Default_Handler")));
 
 __attribute__((section(".vectors"), used)) void (*const vectors[16 + 76])(void) = {
     [0] = (void (*)(void))_estack, [1] = Reset_Handler,
-    [2 ... 6] = Default_Handler, [11 ... 12] = Default_Handler, [14] = Default_Handler,
+    [2] = Default_Handler, [3 ... 6] = system_reset,  /* a fault (e.g. a crashed RAM program) restarts */
+    [11 ... 12] = Default_Handler, [14] = Default_Handler,
     [15] = SysTick_Handler,
     [16 ... 16 + 66] = Default_Handler,
     [16 + 67] = OTGFS_IRQHandler,  /* same IRQ number as stock */

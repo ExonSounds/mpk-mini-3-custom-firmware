@@ -168,6 +168,11 @@ LEDs 0, 1 and 8–15 get full PWM range; the rest are capped at brightness 4 (pr
   in OLED page order, stored at settings page +0x100 (magic "IMG1" + sum16), inverted every 60 s. SysEx 06/07/08
   write (64-byte chunks), read and clear it. Flashing firmware erases the settings page and the image with it.
 - v9.60, tested 2026-11-21: idle screen OFF also darkens every LED (ui_leds_off masks the PWM output).
+- v9.70, tested 2026-11-21: RAM programs. The firmware now uses 8 KB of RAM (stack top 0x20002000, was 0x20004B70
+  like stock); 0x20002000-0x20007FFF (24 KB) holds an uploaded program (SysEx 09 write / 0A run, sum16 and
+  "MKRP" header checked), called from the main loop with an API table (prog_api.h). Code runs from SRAM fine,
+  and the upper 24 KB exist (the AT32F415RB has 32 KB). PROG SELECT held 2 s resets (AIRCR SYSRESETREQ);
+  HardFault/MemManage/BusFault/UsageFault reset too instead of hanging.
 - The bootloader jumps to `[0x0800A004]` with interrupts disabled and without loading SP, so the app must set SP and VTOR itself.
 - OLED: frames pinned to pages 0–3 are invisible. The glass shows the other half of the controller's 64-row memory,
   or which half is visible varies. Writing the frame to pages 0–7 (twice) works. Stock avoids the problem by letting frames alternate.

@@ -2,8 +2,8 @@ import os
 import re
 import unittest
 
-from mpk3_cfg import (HDR, LAYOUT, SETTINGS, decode, encode, from_nibbles, image_pixel, line_points, msg,
-                      parse_reply, set_pixel, to_nibbles, to_oled)
+from mpk3_cfg import (HDR, LAYOUT, PROG_BASE, PROG_RUN, PROG_SIZE, PROG_WRITE, SETTINGS, decode, encode, from_nibbles,
+                      image_pixel, line_points, msg, parse_reply, program_messages, set_pixel, to_nibbles, to_oled)
 
 FW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fw")
 
@@ -106,6 +106,24 @@ class CfgTest(unittest.TestCase):
             self.assertEqual((pts[0], pts[-1]), (a, b))
             for p, q in zip(pts, pts[1:]):                 # every step goes to a neighbouring pixel: no gaps
                 self.assertLessEqual(max(abs(p[0] - q[0]), abs(p[1] - q[1])), 1)
+
+    def test_program_upload_messages(self):
+        api = open(os.path.join(FW, "prog_api.h")).read()
+        self.assertEqual(int(re.search(r"#define PROG_BASE (0x\w+)u", api)[1], 16), PROG_BASE)
+        self.assertEqual(int(re.search(r"#define PROG_SIZE (0x\w+)u", api)[1], 16), PROG_SIZE)
+        prog = b"MKRP" + bytes(range(256)) * 2 + b"\x01"           # 517 bytes: 9 blocks, last one padded
+        msgs = program_messages(prog)
+        self.assertEqual([c for c, _ in msgs], [PROG_WRITE] * 9 + [PROG_RUN])
+        self.assertEqual(msgs[8][1][:2], bytes([0, 8]))
+        self.assertEqual(b"".join(from_nibbles(d[2:]) for _, d in msgs[:-1])[:len(prog)], prog)
+        run = msgs[-1][1]
+        self.assertEqual(run[0] << 14 | run[1] << 7 | run[2], 517)
+        self.assertEqual(run[3] << 14 | run[4] << 7 | run[5], sum(prog) & 0xFFFF)
+        self.assertTrue(all(b < 128 for _, d in msgs for b in d))
+        with self.assertRaisesRegex(ValueError, "header"):
+            program_messages(b"\x7fELF" + bytes(60))
+        with self.assertRaisesRegex(ValueError, "at most"):
+            program_messages(b"MKRP" + bytes(PROG_SIZE))
 
 
 if __name__ == "__main__":

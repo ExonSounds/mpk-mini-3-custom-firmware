@@ -2,6 +2,7 @@
 #include "analog.h"
 #include "board.h"
 #include "menu.h"
+#include "prog.h"
 #include "settings.h"
 
 #ifndef FW_VERSION
@@ -44,7 +45,7 @@ static void send_sysex(const uint8_t *m, unsigned len) {
         uint32_t cin = i + n < len ? 0x4 : 0x4 + n;  /* 4 = start/continue, 5/6/7 = ends with 1/2/3 bytes */
         uint32_t p = cin;
         for (unsigned j = 0; j < n; j++) p |= (uint32_t)m[i + j] << (8 * (j + 1));
-        midi_push(p);
+        midi_queue(p);
     }
 }
 
@@ -124,6 +125,15 @@ void cfg_poll(void) {
     case 0x08:    /* IMAGE_CLEAR: back to the built-in logo; save with SAVE */
         idle_image_set = 0, image_dirty = 1;
         status(cmd, 0);
+        break;
+    case 0x09:    /* PROG_WRITE: block hi, lo (64-byte blocks, 7 bits each), 64 bytes as nibbles */
+        if (n != 2 + 128) { status(cmd, 1); break; }
+        status(cmd, prog_write((unsigned)(data[0] << 7 | data[1]) * 64, data + 2));
+        break;
+    case 0x0A:    /* PROG_RUN: size, sum16 (3 x 7 bits each); runs it once this reply is out */
+        if (n != 6) { status(cmd, 1); break; }
+        status(cmd, prog_start((unsigned)data[0] << 14 | data[1] << 7 | data[2],
+                               (unsigned)data[3] << 14 | data[4] << 7 | data[5]));
         break;
     default: status(cmd, 0x7F);
     }

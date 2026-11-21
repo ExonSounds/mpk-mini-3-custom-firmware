@@ -16,7 +16,9 @@ void knob_state(uint8_t pos[8], uint8_t value[8], uint8_t *rel); /* pointer posi
 void joy_state(int *x, int *y);                                  /* -1000..1000, right / up positive */
 
 /* Provided by main.c */
-void midi_push(uint32_t pkt);
+void midi_push(uint32_t pkt);   /* input-driven MIDI: dropped while a RAM program owns the inputs */
+void midi_queue(uint32_t pkt);  /* always sent (config replies, RAM programs) */
+extern volatile uint32_t ticks; /* SysTick count, 20 kHz */
 enum { V_HOME, V_KEYS, V_PADS, V_KNOBS, V_JOY, V_MSG, V_TEMPO };
 void show_view(int v);              /* switch the screen to a view and redraw it (MSG/TEMPO time out to HOME) */
 void show_msg(const char *title, const char *value);  /* a button's new state, ~1.5 s */

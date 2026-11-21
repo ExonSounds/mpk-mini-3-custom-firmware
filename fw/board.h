@@ -61,6 +61,7 @@ void rect(int x, int y, int w, int h);
 void digit(int x, int y, int d, int scale);  /* 3x5 font, each dot drawn scale x scale */
 int text(int x, int y, const char *s, int scale);  /* 5x7 font, 6*scale px per char; returns x after the text */
 
+void system_reset(void);      /* restart the chip (bootloader, then this firmware) */
 void led_out(uint32_t bits);    /* bit n = LED n (0-23), see firmware/NOTES.md */
 
 /* ADC1 on PA0-PA4 (ch 0-4). PA0-PA2 go through 8:1 muxes selected by PB0-PB2 (firmware/NOTES.md). */

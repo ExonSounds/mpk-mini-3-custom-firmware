@@ -16,6 +16,10 @@
 #include "pong.c"
 #include "views.c"
 #include "gfx.c"
+#include "prog.c"
+
+static int resets;
+void system_reset(void) { resets++; }
 
 /* stubs for the board/USB functions main.c, analog.c, ui.c and menu.c link against */
 static uint32_t led_bits;
@@ -646,5 +650,50 @@ int main(void) {
     uint32_t back = 0; for (int i = 0; i < 4 * 32; i++) ui_led_tick(), back |= led_bits;
     assert(lit && !dark && back == lit);
     puts("leds off ok");
+
+    /* RAM program upload: one 64-byte block with header (magic, entry = PROG_BASE + 9, Thumb) */
+    uint8_t prog[64] = {0x4D, 0x4B, 0x52, 0x50, 0x09, 0x20, 0x00, 0x20, 0x70, 0x47};  /* ..., bx lr */
+    uint8_t pm[6 + 2 + 128], pr[16];
+    memcpy(pm, (uint8_t[]){0xF0, 0x7D, 0x4D, 0x4B, 0x09, 0, 0}, 7);
+    for (int i = 0; i < 64; i++) pm[7 + 2 * i] = prog[i] >> 4, pm[8 + 2 * i] = prog[i] & 15;
+    pm[sizeof pm - 1] = 0xF7;
+    host_send(pm, sizeof pm);
+    assert(host_reply(pr) == 7 && pr[4] == 0x49 && pr[5] == 0);
+    unsigned psum = 0; for (int i = 0; i < 64; i++) psum += prog[i];
+    uint8_t run[] = {0xF0, 0x7D, 0x4D, 0x4B, 0x0A, 0, 0, 64, psum >> 14 & 127, psum >> 7 & 127, (psum + 1) & 127, 0xF7};
+    host_send(run, sizeof run);
+    assert(host_reply(pr) == 7 && pr[5] == 2 && !prog_run_req);       /* wrong checksum: refused */
+    run[10] = psum & 127;
+    host_send(run, sizeof run);
+    assert(host_reply(pr) == 7 && pr[5] == 0 && prog_run_req);        /* ok: main loop starts it */
+    host_send(pm, sizeof pm);
+    assert(host_reply(pr) == 7 && pr[5] == 3);                        /* no overwriting it now */
+    prog_exec();
+    assert(!prog_run_req && !prog_running);
+    pm[8 + 2 * 4] = 0x8;                                              /* entry 0x..08: no Thumb bit */
+    assert(prog_write(0, pm + 7) == 0 && prog_start(64, psum - 1) == 2);
+    assert(prog_write(PROG_SIZE - 32, pm + 7) == 1);                  /* past the end */
+
+    /* a program that owns the inputs: keys and buttons do nothing, its own MIDI still goes out */
+    prog_running = prog_own_input = 1;
+    uint8_t arp_was = seq_arp_on;
+    buttons(1 << BTN_ARP); buttons(0);
+    assert(seq_arp_on == arp_was && qt == qh);
+    key_row(6, 1 << 3, MS(1000)); key_row(7, 1 << 3, MS(1010));
+    assert(qt == qh);                                                 /* key down: no note from the firmware */
+    uint8_t kv[25]; keys_level(kv);
+    assert(kv[0] == 75);                                              /* but the program sees it */
+    key_row(7, 0, MS(1100)); key_row(6, 0, MS(1110));
+    midi_queue(0x09 | 0x90u << 8 | 60u << 16 | 100u << 24);
+    assert(pop() == (0x09 | 0x90u << 8 | 60u << 16 | 100u << 24));
+    /* holding PROG SELECT 2 s resets the keyboard */
+    for (int i = 0; i < 3990; i++) ui_button_row(8, 1 << BTN_PROG_SELECT);
+    assert(!resets);
+    for (int i = 0; i < 20; i++) ui_button_row(8, 1 << BTN_PROG_SELECT);
+    assert(resets);
+    buttons(0);
+    prog_running = prog_own_input = 0;
+    while (qt != qh) pop();
+    puts("ram programs ok");
     return 0;
 }
