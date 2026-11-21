@@ -6,10 +6,12 @@
 #include "board.h"
 #include "cfg.h"
 #include "menu.h"
+#include "pong.h"
 #include "seq.h"
 #include "settings.h"
 #include "ui.h"
 #include "usb_midi.h"
+#include "views.h"
 
 /* ---- MIDI event queue: SysTick (producer) -> main loop (consumer) ---- */
 #define QN 256  /* power of two; a settings reply alone is ~20 packets */
@@ -32,13 +34,16 @@ void usb_midi_received(uint32_t pkt) {
 
 static volatile int16_t shown[3];
 static volatile uint8_t shown_dirty = 1;
-void show3(int a, int b, int c) { shown[0] = a, shown[1] = b, shown[2] = c, shown_dirty = 1; ui_activity(); }
+static volatile uint8_t view = V_NUMBERS;
+void show3(int a, int b, int c) { shown[0] = a, shown[1] = b, shown[2] = c, view = V_NUMBERS, shown_dirty = 1; ui_activity(); }
+void show_view(int v) { view = v, shown_dirty = 1; ui_activity(); }
 
 /* ---- Keys ---- */
 #define BASE_NOTE 48  /* lowest key = C3, like stock's default octave */
 enum { IDLE, ARMED, ON };
 static uint8_t kstate[25], knote[25];  /* knote: note sent at note-on, so octave changes can't strand a note */
 static uint8_t kvia[25];               /* 1 = this key went to the arpeggiator */
+static uint8_t kvel[25];               /* velocity it was struck with, for the keyboard view */
 static uint32_t kt1[25];
 
 /* Velocity from the time between first and second contact.
@@ -62,19 +67,21 @@ static void key_row(int row, uint8_t closed, uint32_t now) {
             else if (kstate[k] == ARMED && !c) kstate[k] = IDLE;
             else if (kstate[k] == ON && !c) {
                 kstate[k] = IDLE;
+                show_view(V_KEYS);
                 if (kvia[k]) arp_key(knote[k], 0, 0);
                 else midi_push(0x08 | (0x80u | S.keys_ch) << 8 | (uint32_t)knote[k] << 16 | 0x40u << 24);
             }
         } else if (kstate[k] == ARMED && c) {  /* second contact: note on */
             uint32_t us = (now - kt1[k]) / (F_CPU / 1000000);
             uint8_t vel = ui_full_level ? 127 : curve(velocity(us), S.key_curve);  /* FULL LEVEL: keys too */
+            kvel[k] = vel;
             kstate[k] = ON;
             int n = BASE_NOTE + 12 * ui_octave + (S.transpose - 12) + k;
             knote[k] = n < 0 ? 0 : n > 127 ? 127 : n;
             kvia[k] = seq_arp_on;
             if (kvia[k]) arp_key(knote[k], vel, 1);
             else midi_push(0x09 | (0x90u | S.keys_ch) << 8 | (uint32_t)knote[k] << 16 | (uint32_t)vel << 24);
-            show3(knote[k], vel, us > 999000 ? 999 : us / 1000);
+            show_view(V_KEYS);
         }
     }
 }
@@ -98,6 +105,15 @@ static void number(int x, int y, int v, int scale) {
     for (int i = 2; i >= 0; i--, v /= 10) digit(x + i * 4 * scale, y, v % 10, scale);
 }
 
+static void send_queued(void) {
+    uint32_t buf[16];
+    int n = 0;
+    for (uint8_t i = qt; i != qh && n < 16; i = (i + 1) & (QN - 1)) buf[n++] = q[i];
+    if (n && usb_midi_send(buf, n)) qt = (qt + n) & (QN - 1);
+}
+
+void oled_flush_hook(void) { send_queued(); }  /* keeps MIDI timing tight while a frame is drawn */
+
 int main(void) {
     board_init();
     settings_load();
@@ -109,12 +125,10 @@ int main(void) {
     SYST_CSR = 7;
     irq_enable();
 
-    int was_configured = -1, screen_on = 1;
+    int was_configured = -1, screen_on = 1, in_pong = 0;
+    uint32_t pong_due = 0, last_draw = 0;
     for (;;) {
-        uint32_t buf[16];
-        int n = 0;
-        for (uint8_t i = qt; i != qh && n < 16; i = (i + 1) & (QN - 1)) buf[n++] = q[i];
-        if (n && usb_midi_send(buf, n)) qt = (qt + n) & (QN - 1);
+        send_queued();
         cfg_poll();
 
         if (save_req) {  /* menu closed: store settings (interrupts are off for the ~20-40 ms erase) */
@@ -126,27 +140,61 @@ int main(void) {
             shown_dirty = 0;
             continue;
         }
-        /* screen fully off after the SCREEN OFF time with nothing used; any input turns it back on */
+        /* after IDLE AFTER with nothing used: ping-pong or screen fully off; any input brings the normal screen back */
         static const uint8_t off_secs[5] = {5, 10, 30, 60, 0};
-        int want_on = menu_on || !off_secs[S.screen_off] || ticks - last_use < off_secs[S.screen_off] * 20000u;
+        /* signed: the SysTick can update last_use after `ticks` was read here, making the difference negative
+         * (= just used). Unsigned, that read as ~4 billion ticks idle and flashed a ping-pong frame mid-playing. */
+        int idle = !menu_on && off_secs[S.screen_off] &&
+                   (int32_t)(ticks - last_use) >= (int32_t)(off_secs[S.screen_off] * 20000u);
+        int want_on = !idle || S.idle_screen == 0;
         if (want_on != screen_on) {
             screen_on = want_on;
             oled_power(want_on);
             if (want_on) shown_dirty = 1, menu_dirty = 1;
         }
         if (!screen_on) continue;
+        if (idle) {
+            if (!in_pong) in_pong = 1, pong_reset(), pong_due = ticks;
+            if ((int32_t)(ticks - pong_due) >= 0) {  /* ~30 frames per second */
+                pong_due += 660;
+                pong_step();
+                pong_draw();
+                oled_flush();
+            }
+            continue;
+        }
+        if (in_pong) in_pong = 0, shown_dirty = 1;
         if (menu_on) {
             if (menu_dirty) menu_dirty = 0, ui_activity(), menu_draw();
             continue;
         }
         int cfg = usb_configured();
-        if (shown_dirty || cfg != was_configured) {
-            shown_dirty = 0, was_configured = cfg;
-            fb_clear();
-            number(0, 3, shown[0], 5);
-            number(64, 3, shown[1], 3);
-            number(104, 3, shown[2], 2);
-            if (cfg) rect(120, 26, 6, 6);
+        /* live views redraw as things change, at most every 20 ms so the screen never holds up MIDI */
+        if ((shown_dirty && ticks - last_draw >= 400) || cfg != was_configured) {
+            shown_dirty = 0, was_configured = cfg, last_draw = ticks;
+            if (view == V_KEYS) {
+                uint8_t level[25];
+                for (int k = 0; k < 25; k++) level[k] = kstate[k] == ON ? kvel[k] : 0;
+                draw_keys(level);
+            } else if (view == V_PADS) {
+                uint8_t level[8];
+                pads_level(level);
+                draw_pads(level, ui_bank);
+            } else if (view == V_JOY) {
+                int x, y;
+                joy_state(&x, &y);
+                draw_joystick(x, y);
+            } else if (view == V_KNOBS) {
+                uint8_t pos[8], value[8], rel;
+                knob_state(pos, value, &rel);
+                draw_knobs(pos, value, rel);
+            } else {
+                fb_clear();
+                number(0, 3, shown[0], 5);
+                number(64, 3, shown[1], 3);
+                number(104, 3, shown[2], 2);
+                if (cfg) rect(120, 26, 6, 6);
+            }
             oled_flush();
         }
     }

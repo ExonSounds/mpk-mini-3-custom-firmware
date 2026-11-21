@@ -116,7 +116,7 @@ SETTINGS = [
     Setting("tempo", "Tempo (BPM)", "Arp & tempo", 40, 240),
     Setting("swing", "Swing (%)", "Arp & tempo", 50, 75),
     Setting("gate", "Gate (% of a step)", "Arp & tempo", 5, 100),
-    Setting("screen_off", "Screen off after", "Display", choices=("5 s", "10 s", "30 s", "60 s", "Never")),
+    Setting("screen_off", "Idle after (nothing used)", "Display", choices=("5 s", "10 s", "30 s", "60 s", "Never")),
     Setting("clock_ext", "Clock", "Arp & tempo", choices=("Internal", "External MIDI clock")),
     *[Setting(f"knob_cc{i}", f"Knob {i} CC", "Knobs", row=f"Knob {i}", col="CC") for i in range(1, 9)],
     *[Setting(f"knob_min{i}", f"Knob {i} min", "Knobs", row=f"Knob {i}", col="Min") for i in range(1, 9)],
@@ -128,7 +128,7 @@ SETTINGS = [
     *[Setting(f"pad_cc{i}", f"Pad {p} CC", "Pads", row=f"Pad {p}", col="CC (CC mode)") for i, p in enumerate(PADS, 1)],
     *[Setting(f"pad_pc{i}", f"Pad {p} program", "Pads", row=f"Pad {p}", col="Program (PROG CHANGE mode)")
       for i, p in enumerate(PADS, 1)],
-    Setting("reserved", "reserved", "", 0, 255),
+    Setting("idle_screen", "When idle, show", "Display", choices=("Ping-pong", "Screen off")),
 ]
 
 

@@ -22,7 +22,7 @@ static inline int clamp127(int v) { return v < 0 ? 0 : v > 127 ? 127 : v; }
 #define PAD_MAX  3800  /* shortcut: peak for velocity 127 is a guess; tune with the screen readout */
 #define PAD_PEAK 3     /* samples (~1.6 ms apart) to look for the peak after crossing PAD_ON */
 enum { P_IDLE, P_RISE, P_ON };
-static struct { uint8_t st, n, mode, num, at; uint16_t peak; } pad[8];  /* mode/num: what the hit sent */
+static struct { uint8_t st, n, mode, num, at, press; uint16_t peak; } pad[8];  /* mode/num: what the hit sent */
 static uint8_t chan_at;  /* last channel pressure sent */
 
 static int pressure_pad(int i) { return pad[i].st == P_ON && (pad[i].mode == PADS_NOTE || pad[i].mode == PADS_REPEAT); }
@@ -48,7 +48,7 @@ static void pad_hit(int i, int vel) {
         else midi_push(pkt(0x9, 0x90 | PAD_CH, pad[i].num, vel));
     }
     ui_pad_led(i, 1);
-    show3(pad[i].num, vel, pad[i].peak / 10);
+    show_view(V_PADS);
 }
 
 static void pad_release(int i) {
@@ -57,6 +57,7 @@ static void pad_release(int i) {
     else if (pad[i].mode == PADS_NOTE) midi_push(pkt(0x8, 0x80 | PAD_CH, pad[i].num, 0x40));
     else if (pad[i].mode == PADS_REPEAT) repeat_pad(i, pad[i].num, 0, 0);
     ui_pad_led(i, 0);
+    show_view(V_PADS);
 }
 
 static void pad_pressure(int i, uint16_t v) {  /* aftertouch while held: PAD_OFF..PAD_MAX -> 0..127 */
@@ -78,6 +79,7 @@ void pad_update(int i, uint16_t v) {
         if (++pad[i].n >= PAD_PEAK) {
             int p = pad[i].peak > PAD_MAX ? PAD_MAX : pad[i].peak;
             pad[i].st = P_ON;
+            pad[i].press = clamp127((p - PAD_OFF) * 127 / (PAD_MAX - PAD_OFF));
             pad_hit(i, ui_full_level ? 127 : curve(1 + (p - PAD_ON) * 126 / (PAD_MAX - PAD_ON), S.pad_curve));
         }
         break;
@@ -86,6 +88,9 @@ void pad_update(int i, uint16_t v) {
             pad_release(i);
             pad[i].st = P_IDLE;
         } else {
+            int p = clamp127((v - PAD_OFF) * 127 / (PAD_MAX - PAD_OFF));
+            if (p >> 3 != pad[i].press >> 3) show_view(V_PADS);  /* redraw when the dither level changes */
+            pad[i].press = p;
             pad_pressure(i, v);
         }
         break;
@@ -116,7 +121,7 @@ void knob_update(int i, uint16_t a, uint16_t b) {
     if (S.knob_rel[i]) {                   /* relative: 64 + steps (65 = one step up, 63 = one down) */
         int v = 64 + (steps > 63 ? 63 : steps < -63 ? -63 : steps);
         midi_push(pkt(0xB, 0xB0 | CTRL_CH, S.knob_cc[i], v));
-        show3(S.knob_cc[i], v, i + 1);
+        show_view(V_KNOBS);
         return;
     }
     kn[i].val = clamp127(kn[i].val + steps);
@@ -124,7 +129,20 @@ void knob_update(int i, uint16_t a, uint16_t b) {
     if (out != kn[i].out) {
         kn[i].out = out;
         midi_push(pkt(0xB, 0xB0 | CTRL_CH, S.knob_cc[i], out));
-        show3(S.knob_cc[i], out, i + 1);
+        show_view(V_KNOBS);
+    }
+}
+
+void pads_level(uint8_t out[8]) {
+    for (int i = 0; i < 8; i++) out[i] = pad[i].st == P_ON ? (pad[i].press ? pad[i].press : 1) : 0;
+}
+
+void knob_state(uint8_t pos[8], uint8_t value[8], uint8_t *rel) {
+    *rel = 0;
+    for (int i = 0; i < 8; i++) {
+        pos[i] = kn[i].val;
+        value[i] = S.knob_min[i] + kn[i].val * (S.knob_max[i] - S.knob_min[i]) / 127;
+        if (S.knob_rel[i]) *rel |= 1u << i;
     }
 }
 
@@ -136,8 +154,10 @@ void knob_update(int i, uint16_t a, uint16_t b) {
 static struct { uint16_t c, lo, hi; int16_t lastr, pb, cc, neg, pos; uint8_t init; } joy[2];
 
 static void joy_cc(int cc, int16_t *last, int v) {
-    if (v != *last) *last = v, midi_push(pkt(0xB, 0xB0 | CTRL_CH, cc, v)), show3(cc, v, 0);
+    if (v != *last) *last = v, midi_push(pkt(0xB, 0xB0 | CTRL_CH, cc, v)), show_view(V_JOY);
 }
+
+void joy_state(int *x, int *y) { *x = joy[0].lastr, *y = joy[1].lastr; }
 
 void joy_update(int ax, uint16_t v) {
     if (!joy[ax].init) {
@@ -155,7 +175,7 @@ void joy_update(int ax, uint16_t v) {
     int mode = ax ? S.joy_y_mode : S.joy_x_mode, neg = ax ? S.joy_y_neg : S.joy_x_neg, pos = ax ? S.joy_y_pos : S.joy_x_pos;
     if (mode == JOY_PITCH) {
         int pb = 8192 + r * 8191 / 1000;
-        if (pb != joy[ax].pb) joy[ax].pb = pb, midi_push(pkt(0xE, 0xE0 | CTRL_CH, pb & 0x7F, pb >> 7)), show3(pb >> 7, pb & 0x7F, 0);
+        if (pb != joy[ax].pb) joy[ax].pb = pb, midi_push(pkt(0xE, 0xE0 | CTRL_CH, pb & 0x7F, pb >> 7)), show_view(V_JOY);
     } else if (mode == JOY_CC) {
         joy_cc(pos, &joy[ax].cc, 64 + r * 63 / 1000);
     } else {

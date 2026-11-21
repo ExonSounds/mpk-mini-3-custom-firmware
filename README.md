@@ -9,7 +9,7 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
 > **Not affiliated with Akai Professional or inMusic.** "Akai" and "MPK" are their trademarks. Flashing custom
 > firmware may void your warranty. Use at your own risk; see the [licence](LICENSE).
 
-## Features (firmware v8.00)
+## Features (firmware v9.30)
 
 - **Keys:** 25 keys with velocity from the two-contact timing, octave −4…+4 (OCT−/OCT+, both = reset),
   transpose ±12, velocity curves (soft / normal / hard / fixed).
@@ -27,7 +27,9 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
   changes it. Settings are kept across power cycles.
 - **Desktop GUI and command line** over USB-MIDI SysEx: read, edit live, save to the keyboard, defaults,
   backup/restore to a JSON file.
-- **Screen** switches fully off after a chosen idle time.
+- **Live screens:** the keyboard with held keys (shaded by velocity), the pad grid with held pads (shaded by live
+  pressure), all 8 dials with pointer and value, and the joystick position.
+- **Idle screen:** after a chosen idle time the keyboard plays ping-pong against itself, or the screen switches off.
 
 Not done yet: saving more than one setup (presets), flashing from the GUI.
 
@@ -79,7 +81,7 @@ python3 mpk3_cfg.py get               # or the command line: info | get | set KE
 
 | Path | What |
 |------|------|
-| `fw/` | Custom firmware (C, no vendor SDK): `board.*` clocks/pins/OLED/LEDs, `usb_midi.*` USB-MIDI driver, `analog.*` pads/knobs/joystick, `ui.*` buttons/LEDs, `menu.*` + `settings.*` on-device menu and flash storage, `seq.*` clock/arpeggiator/note repeat, `cfg.*` SysEx settings protocol, `test.c` hardware test firmware |
+| `fw/` | Custom firmware (C, no vendor SDK): `board.*` clocks/pins/OLED/LEDs, `usb_midi.*` USB-MIDI driver, `analog.*` pads/knobs/joystick, `ui.*` buttons/LEDs, `menu.*` + `settings.*` on-device menu and flash storage, `seq.*` clock/arpeggiator/note repeat, `cfg.*` SysEx settings protocol, `gfx.*`/`views.*`/`pong.*` drawing, live screens and idle game, `test.c` hardware test firmware |
 | `fw/mkimage.py` | Wraps the app into a full image with the stock bootloader region and a valid trailer |
 | `mpk3_flash.py` | Flasher for the stock USB HID bootloader |
 | `mpk3_gui.py`, `mpk3_cfg.py` | Desktop GUI and command line for the custom firmware's settings (SysEx protocol in `fw/cfg.h`) |

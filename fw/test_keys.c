@@ -12,9 +12,11 @@
 #include "settings.c"
 #include "seq.c"
 #include "cfg.c"
+#include "pong.c"
+#include "views.c"
+#include "gfx.c"
 
 /* stubs for the board/USB functions main.c, analog.c, ui.c and menu.c link against */
-int text(int x, int y, const char *s, int scale) { (void)y; (void)s; (void)scale; return x; }
 void led_out(uint32_t bits) { (void)bits; }
 void oled_power(int on) { (void)on; }
 void adc_init(void) {}
@@ -24,10 +26,7 @@ void matrix_drive(int row) { (void)row; }
 void usb_init(void) {}
 int usb_configured(void) { return 0; }
 int usb_midi_send(const uint32_t *p, int n) { (void)p; (void)n; return 0; }
-void fb_clear(void) {}
 void oled_flush(void) {}
-void rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
-void digit(int x, int y, int d, int s) { (void)x; (void)y; (void)d; (void)s; }
 
 static uint32_t pop(void) { assert(qt != qh); uint32_t p = q[qt]; qt = (qt + 1) & (QN - 1); return p; }
 #define MS(x) ((uint32_t)(x) * (F_CPU / 1000))
@@ -503,5 +502,64 @@ int main(void) {
     buttons(1 << BTN_PROG_SELECT); buttons(0);
     save_req = 0;
     puts("menu layout 4 ok");
+
+    /* ping-pong idle screen: everything stays on screen, rallies happen, both sides score, score wraps after 9 */
+    assert(S.idle_screen == 0);                          /* default = ping-pong */
+    pong_reset();
+    int bounces = 0, points[2] = {0, 0}, wraps = 0;
+    for (int f = 0; f < 20000; f++) {
+        int pvx = vx, s0 = score[0], s1 = score[1];
+        pong_step();
+        assert(py[0] >= 0 && py[0] <= (H - PH) * FP && py[1] >= 0 && py[1] <= (H - PH) * FP);
+        assert(by >= 0 && by <= (H - 2) * FP && bx >= -3 * FP && bx <= (W + 3) * FP);
+        if ((pvx < 0) != (vx < 0) && score[0] == s0 && score[1] == s1) bounces++;
+        if (score[0] != s0 || score[1] != s1) {
+            if (score[0] == 0 && score[1] == 0) wraps++;
+            else points[score[1] != s1]++;
+        }
+    }
+    assert(bounces > 50 && points[0] > 0 && points[1] > 0 && wraps > 0);
+    printf("pong ok (%d returns, %d:%d points, %d games)\n", bounces, points[0], points[1], wraps);
+
+    /* live views: check the pixels */
+    #define LIT(x, y) (fb[((y) >> 3) * 128 + (x)] >> ((y) & 7) & 1)
+    uint8_t kl[25] = {0}, pl[8] = {0};
+    draw_keys(kl);
+    assert(!LIT(KX + 4, 25) && LIT(KX, 25) && LIT(KX + KW, 25));         /* C3 open, key borders drawn */
+    assert(LIT(KX + KW - 2, 0) && LIT(KX + KW - 2, 10) && !LIT(KX + KW, 10));  /* C#3: outline, open middle */
+    kl[0] = kl[1] = kl[24] = 127;
+    draw_keys(kl);                                                      /* C3, C#3 and top C held hard */
+    assert(LIT(KX + 4, 25) && LIT(KX + 14 * KW + 4, 25));              /* white keys filled below the black keys */
+    assert(LIT(KX + KW, 10) && LIT(KX + KW - 3, 10) == 0);              /* C#3 filled, with a dark gap to C3 */
+    assert(!LIT(KX + 2 * KW + 4, 25));                                  /* D3 not held */
+    pl[4] = 127;
+    draw_pads(pl, 0);                                                   /* pad 5 = top left, full pressure */
+    assert(LIT(15, 7) && LIT(1, 0) && LIT(30, 14));                     /* filled */
+    assert(LIT(1, 17) && !LIT(2, 18) && !LIT(5, 30));                   /* pad 1 bottom left: outline only */
+    int lab = 0; for (int x = 10; x < 22; x++) for (int y = 21; y < 28; y++) lab |= LIT(x, y);
+    assert(lab);                                                        /* its "A1" label */
+    uint8_t pos[8] = {0, 127, 64}, value[8] = {0, 127, 64};
+    draw_knobs(pos, value, 1u << 7);
+    assert(LIT(8 - 4, 9 + 4) && LIT(24 + 4, 9 + 4) && LIT(40, 9 - 5));  /* pointers: min, max, centre */
+    assert(LIT(8, 9 - 7) && LIT(8 + 7, 9));                             /* circle */
+    assert(LIT(120, 9 - 5));                                            /* relative knob 8: pointer up */
+    int num8 = 0; for (int x = 114; x < 127; x++) for (int y = 21; y < 26; y++) num8 |= LIT(x, y);
+    assert(!num8);                                                      /* and no value under it */
+    draw_joystick(0, 0);
+    assert(LIT(64, 16) && LIT(63, 15) && LIT(48, 0) && LIT(79, 31));    /* centred dot, box corners */
+    draw_joystick(1000, 1000);
+    assert(LIT(78, 2) && !LIT(64, 16));                                 /* full right + up = top right */
+    int xr = 0; for (int x = 0; x < 48; x++) for (int y = 21; y < 28; y++) xr |= LIT(x, y);
+    assert(xr);                                                         /* X readout ("100") drawn */
+    /* dither: lit share of the pad's inside follows the pressure; the lightest touch still shows */
+    int lit_at[3]; const uint8_t lv[3] = {1, 64, 127};
+    for (int t = 0; t < 3; t++) {
+        pl[4] = lv[t];
+        draw_pads(pl, 0);
+        lit_at[t] = 0;
+        for (int x = 2; x < 30; x++) for (int y = 1; y < 14; y++) lit_at[t] += LIT(x, y);
+    }
+    assert(lit_at[0] > 0 && lit_at[0] < 364 / 8 && lit_at[1] > 364 * 3 / 8 && lit_at[1] < 364 * 5 / 8 && lit_at[2] == 364);
+    puts("views ok");
     return 0;
 }

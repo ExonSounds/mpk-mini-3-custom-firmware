@@ -54,6 +54,7 @@ void board_init(void);          /* clocks (48 MHz from the 8 MHz crystal, like s
 extern uint8_t fb[512];         /* 128x32, fb[page * 128 + x], bit = y % 8 */
 void oled_flush(void);
 void oled_power(int on);
+void oled_flush_hook(void);   /* called during oled_flush (weak, default empty); main.c sends queued MIDI */
 void fb_clear(void);
 void px(int x, int y);
 void rect(int x, int y, int w, int h);

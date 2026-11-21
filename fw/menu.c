@@ -20,6 +20,7 @@ static const char *const offon[] = {"OFF", "ON"};
 static const char *const arp_modes[] = {"UP", "DOWN", "UPDOWN EXC", "UPDOWN INC", "AS PLAYED", "RANDOM"};
 static const char *const divisions[] = {"1/4", "1/4T", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T"};
 static const char *const timeouts[] = {"5 S", "10 S", "30 S", "60 S", "NEVER"};
+static const char *const idle_shows[] = {"PING-PONG", "OFF"};
 static const char *const clocks[] = {"INTERNAL", "EXTERNAL"};
 static const char *const at_modes[] = {"OFF", "CHANNEL", "POLY"};
 static const char *const joy_modes[] = {"PITCH BEND", "CC", "DUAL CC"};
@@ -58,7 +59,8 @@ static const item_t items[] = {
     {"ARP LATCH", &S.arp_latch, 0, 1, NAMES, 0, offon},
     {"ARP SWING %", &S.swing, 50, 75, NUM, 0, 0},
     {"ARP GATE %", &S.gate, 5, 100, NUM, 0, 0},
-    {"SCREEN OFF", &S.screen_off, 0, 4, NAMES, 0, timeouts},
+    {"IDLE AFTER", &S.screen_off, 0, 4, NAMES, 0, timeouts},
+    {"IDLE SCREEN", &S.idle_screen, 0, 1, NAMES, 0, idle_shows},
     {"RESET ALL", &reset, 0, 1, NAMES, 0, yesno},
 };
 #define N_ITEMS ((int)(sizeof items / sizeof items[0]))

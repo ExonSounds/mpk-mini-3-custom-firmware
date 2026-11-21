@@ -26,7 +26,7 @@ class CfgTest(unittest.TestCase):
         lim = [int(x) for x in re.search(r"lim\[\] = \{([^}]*)\}", src)[1].split(",")]
         self.assertEqual([s.hi for s in SETTINGS[:len(lim)]], lim)  # single settings, checked one by one in C
         for s in SETTINGS[len(lim):]:                                # arrays: settings_valid() loops
-            self.assertEqual(s.hi, 1 if s.key.startswith("knob_rel") else 255 if s.key == "reserved" else 127, s.key)
+            self.assertEqual(s.hi, 1 if s.key.startswith("knob_rel") or s.key == "idle_screen" else 127, s.key)
         self.assertEqual(SETTINGS[len(lim)].key, "knob_cc1")
         layout = int(re.search(r"#define SETTINGS_LAYOUT (\d+)", open(os.path.join(FW, "settings.h")).read())[1])
         self.assertEqual(layout, LAYOUT)

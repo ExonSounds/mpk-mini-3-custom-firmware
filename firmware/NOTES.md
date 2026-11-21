@@ -157,6 +157,12 @@ LEDs 0, 1 and 8–15 get full PWM range; the rest are capped at brightness 4 (pr
   (off/channel/poly), arp swing 50–75 % and gate 5–100 %. On the keyboard: knob range 20–40 kept, joystick down/up
   on CC 30/31, channel aftertouch 0–117, pad A3 custom note 60, relative knob 63/65. Struct copies need
   memcpy/memset (provided in board.c; no libc).
+- v9.x, tested 2026-11-21: ping-pong idle screen (IDLE SCREEN setting, uses the former reserved byte, 0 = pong),
+  live views (keys shaded by velocity, pads by live pressure via a 4x4 Bayer dither, 8 dials, joystick box).
+  oled_flush calls a hook every 128 bytes to send queued MIDI. Bit-banged OLED slowed to ~270 ns/bit (was ~110 ns,
+  near the SSD1306 100 ns minimum). Fixed a race: the idle check `ticks - last_use` could go negative when the
+  SysTick updated last_use mid-expression; unsigned, that flashed pong frames while turning knobs (now signed).
+  The keybed has no pressure sensor (two contacts per key only).
 - The bootloader jumps to `[0x0800A004]` with interrupts disabled and without loading SP, so the app must set SP and VTOR itself.
 - OLED: frames pinned to pages 0–3 are invisible. The glass shows the other half of the controller's 64-row memory,
   or which half is visible varies. Writing the frame to pages 0–7 (twice) works. Stock avoids the problem by letting frames alternate.

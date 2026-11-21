@@ -37,8 +37,9 @@ int settings_valid(const settings_t *s) {
     static const uint8_t lim[] = {15, 15, 15, 24, 3, 3, 2, 2, 2, 127, 127, 2, 127, 127, 5, 7, 3, 1, 240, 75, 100, 4, 1};
     _Static_assert(sizeof lim == offsetof(settings_t, knob_cc), "one limit per single setting");
     for (unsigned i = 0; i < sizeof lim; i++) if (c[i] > lim[i]) return 0;
-    for (unsigned i = offsetof(settings_t, knob_cc); i < offsetof(settings_t, reserved); i++)
+    for (unsigned i = offsetof(settings_t, knob_cc); i < offsetof(settings_t, idle_screen); i++)
         if (c[i] > 127) return 0;
+    if (s->idle_screen > 1) return 0;
     for (int i = 0; i < 8; i++) if (s->knob_rel[i] > 1) return 0;
     return s->tempo >= 40 && s->swing >= 50 && s->gate >= 5;
 }

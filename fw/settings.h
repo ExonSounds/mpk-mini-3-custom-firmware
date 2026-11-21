@@ -30,7 +30,7 @@ typedef struct {
     uint8_t knob_cc[8], knob_min[8], knob_max[8];
     uint8_t knob_rel[8];                 /* 0 absolute, 1 relative (64 +/- steps) */
     uint8_t pad_note[16], pad_cc[16], pad_pc[16];
-    uint8_t reserved;                    /* keeps the size even for halfword programming */
+    uint8_t idle_screen;                 /* 0 ping-pong, 1 screen off; was a reserved 0 byte, so old saves = pong */
 } settings_t;
 
 extern settings_t S;

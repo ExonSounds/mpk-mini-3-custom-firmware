@@ -10,6 +10,13 @@ void pad_update(int pad, uint16_t v);
 void knob_update(int knob, uint16_t a, uint16_t b);
 void joy_update(int axis, uint16_t v);
 
+/* For the live screens (views.c) */
+void pads_level(uint8_t out[8]);                                 /* 0 = up, 1-127 = held, by live pressure */
+void knob_state(uint8_t pos[8], uint8_t value[8], uint8_t *rel); /* pointer position, sent value, relative mask */
+void joy_state(int *x, int *y);                                  /* -1000..1000, right / up positive */
+
 /* Provided by main.c */
 void midi_push(uint32_t pkt);
-void show3(int a, int b, int c);
+void show3(int a, int b, int c);    /* number screen (joystick, octave, tempo) */
+enum { V_NUMBERS, V_KEYS, V_PADS, V_KNOBS, V_JOY };
+void show_view(int v);              /* switch the screen to a live view and redraw it */
