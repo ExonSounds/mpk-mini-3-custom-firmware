@@ -1,6 +1,6 @@
 # make -C fw  ->  fw/mpk.bin (custom firmware) and fw/test.bin (hardware test)
 # flash with: python3 mpk3_flash.py fw/mpk.bin   (keyboard in update mode: PAD BANK + PROG SELECT at plug-in)
-VERSION = 1000
+VERSION = 1030
 CFLAGS = -DFW_VERSION=0x$(VERSION) --target=thumbv7em-none-eabi -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin \
          -nostdlib -Wall -Wextra -ffunction-sections
 

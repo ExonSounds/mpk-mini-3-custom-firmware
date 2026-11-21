@@ -43,7 +43,7 @@ int settings_valid(const settings_t *s) {
     for (unsigned i = 0; i < sizeof lim; i++) if (c[i] > lim[i]) return 0;
     for (unsigned i = offsetof(settings_t, knob_cc); i < offsetof(settings_t, idle_screen); i++)
         if (c[i] > 127) return 0;
-    if (s->idle_screen > IDLE_IMAGE) return 0;
+    if (s->idle_screen > IDLE_IMAGE || s->shading > 1) return 0;
     for (int i = 0; i < 8; i++) if (s->knob_rel[i] > 1) return 0;
     return s->tempo >= 40 && s->swing >= 50 && s->gate >= 5;
 }

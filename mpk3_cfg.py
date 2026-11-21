@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from mpk3 import MPK, emulator_device
 
 HDR = bytes([0xF0, 0x7D, 0x4D, 0x4B])
-LAYOUT = 4  # fw/settings.h SETTINGS_LAYOUT
+LAYOUT = 5  # fw/settings.h SETTINGS_LAYOUT
 HELLO, GET, SET, SAVE, DEFAULTS, IMAGE_WRITE, IMAGE_READ, IMAGE_CLEAR = 1, 2, 3, 4, 5, 6, 7, 8
 PROG_WRITE, PROG_RUN, PROG_MSG = 9, 10, 11
 IMG_W, IMG_H = 128, 32  # idle image: 512 bytes, byte (y // 8) * 128 + x, bit y % 8 (the OLED's own layout)
@@ -149,6 +149,7 @@ SETTINGS = [
     *[Setting(f"pad_pc{i}", f"Pad {p} program", "Pads", row=f"Pad {p}", col="Program (PROG CHANGE mode)")
       for i, p in enumerate(PADS, 1)],
     Setting("idle_screen", "When idle, show", "Display", choices=("Ping-pong", "Screen off", "Image")),
+    Setting("shading", "Grey in key / pad views", "Display", choices=("Dither", "PWM (flicker)")),
 ]
 
 

@@ -570,6 +570,22 @@ int main(void) {
         for (int x = 2; x < 30; x++) for (int y = 1; y < 14; y++) lit_at[t] += LIT(x, y);
     }
     assert(lit_at[0] > 0 && lit_at[0] < 364 / 8 && lit_at[1] > 364 * 3 / 8 && lit_at[1] < 364 * 5 / 8 && lit_at[2] == 364);
+    /* PWM: the whole inside on or off per frame; lit in 1, 2 and 4 of the 4 frames for the same pressures */
+    views_pwm = 1;
+    for (int t = 0; t < 3; t++) {
+        int frames = 0;
+        pl[4] = lv[t];
+        for (int f = 0; f < 4; f++, views_phase++) {
+            draw_pads(pl, 0);
+            int n = 0;
+            for (int x = 2; x < 30; x++) for (int y = 1; y < 14; y++) n += LIT(x, y);
+            assert(n == 0 || n == 364);                                 /* no dot pattern */
+            frames += n == 364;
+        }
+        static const int want[3] = {1, 2, 4};
+        assert(frames == want[t]);
+    }
+    views_pwm = 0;
     puts("views ok");
 
     /* status messages, tempo screen, BPM from external clock, home screen */

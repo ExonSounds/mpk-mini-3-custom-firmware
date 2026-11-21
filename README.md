@@ -28,7 +28,8 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
 - **Desktop GUI and command line** over USB-MIDI SysEx: read, edit live, save to the keyboard, defaults,
   backup/restore to a JSON file.
 - **Live screens:** the keyboard with held keys (shaded by velocity), the pad grid with held pads (shaded by live
-  pressure), all 8 dials with pointer and value, and the joystick position.
+  pressure; grey as a dot pattern or as PWM flicker: SHADES setting), all 8 dials with pointer and value, and the
+  joystick position.
 - **Home screen:** shows octave, pad bank and mode, arp, note repeat, full level, clock source, USB and tempo;
   pressing a button shows a short ON/OFF message, and TAP TEMPO shows the BPM as you tap (or the external clock's).
 - **Idle screen:** after a chosen idle time the keyboard plays ping-pong against itself, shows a static picture

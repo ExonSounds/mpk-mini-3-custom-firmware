@@ -180,6 +180,11 @@ LEDs 0, 1 and 8–15 get full PWM range; the button LEDs have a *minimum* of 4/3
   (4 x 128 bytes, 7-bit packed) and controls: ~110 frames/s round trip over USB. HELLO sends the version as two
   7-bit bytes, so 9.80 (0x0980) reported 9.00; the next build is 10.00 and cfg.c refuses versions with a byte
   >= 0x80. 10.00 is 9.80 with that fix only.
+- v10.10-10.30, tested 2026-11-21: SHADES setting (layout 5, 105 bytes): grey in the key and pad views as PWM
+  (whole area lit 1-4 of 4 frames) instead of dither; while something is grey the views redraw every 5 ms
+  (~187 frames/s, 47 Hz cycle). 10.20 double-buffered the OLED (write the hidden half of the 64-row RAM, then
+  flip the display start line 0 <-> 32): it stopped the visible write sweep but PWM looked much slower on the
+  real panel (the flip seems to wait for the panel's own refresh), so 10.30 writes both halves again.
 - The bootloader jumps to `[0x0800A004]` with interrupts disabled and without loading SP, so the app must set SP and VTOR itself.
 - OLED: frames pinned to pages 0–3 are invisible. The glass shows the other half of the controller's 64-row memory,
   or which half is visible varies. Writing the frame to pages 0–7 (twice) works. Stock avoids the problem by letting frames alternate.

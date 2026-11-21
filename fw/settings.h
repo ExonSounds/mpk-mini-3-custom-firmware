@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 #define SETTINGS_ADDR 0x0801E000u  /* own flash sector(s), below the bootloader-checked trailer at 0x0801FFF0 */
-#define SETTINGS_LAYOUT 4          /* bump when settings_t changes; also in the flash magic and the GUI */
+#define SETTINGS_LAYOUT 5         /* bump when settings_t changes; also in the flash magic and the GUI */
 
 enum { CURVE_SOFT, CURVE_NORMAL, CURVE_HARD, CURVE_FIXED };
 enum { JOY_PITCH, JOY_CC, JOY_DUAL };  /* pitch bend / one CC over the whole range / one CC per direction */
@@ -34,6 +34,7 @@ typedef struct {
     uint8_t knob_rel[8];                 /* 0 absolute, 1 relative (64 +/- steps) */
     uint8_t pad_note[16], pad_cc[16], pad_pc[16];
     uint8_t idle_screen;                 /* IDLE_*; was a reserved 0 byte, so old saves = ping-pong */
+    uint8_t shading;                     /* grey in the key and pad views: 0 dither, 1 PWM (flicker) */
 } settings_t;
 
 extern settings_t S;

@@ -217,9 +217,18 @@ int main(void) {
         if ((view == V_HOME && differs(&home, &drawn_home, sizeof home)) ||
             (view == V_TEMPO && (beat != drawn_beat || home.bpm != drawn_home.bpm)))
             shown_dirty = 1;
-        /* views redraw as things change, at most every 20 ms so the screen never holds up MIDI */
-        if ((shown_dirty && ticks - last_draw >= 400) || cfg != was_configured) {
+        /* views redraw as things change, at most every 20 ms so the screen never holds up MIDI. PWM shading
+         * flickers the key and pad views: a new frame every 5 ms (a ~2 ms flush), so 4 frames take 20 ms (50 Hz) */
+        int pwm = 0;
+        if (S.shading && (view == V_KEYS || view == V_PADS)) {  /* only while something is grey (1-96: flickers) */
+            uint8_t lv[25];
+            int n = view == V_KEYS ? (keys_level(lv), 25) : (pads_level(lv), 8);
+            for (int i = 0; i < n; i++) pwm |= lv[i] && lv[i] <= 96;
+        }
+        if (pwm) shown_dirty = 1;
+        if ((shown_dirty && ticks - last_draw >= (pwm ? 100u : 400u)) || cfg != was_configured) {
             shown_dirty = 0, was_configured = cfg, last_draw = ticks;
+            views_pwm = S.shading, views_phase++;
             if (view == V_KEYS) {
                 uint8_t level[25];
                 keys_level(level);

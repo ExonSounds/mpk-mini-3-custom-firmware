@@ -2,6 +2,7 @@
 #pragma once
 #include <stdint.h>
 
+extern uint8_t views_pwm, views_phase;             /* grey by PWM instead of dither (settings shading); frame 0-3 */
 void draw_keys(const uint8_t level[25]);          /* key k (0 = lowest C): 0 = up, 1-127 = held (fill density) */
 void draw_pads(const uint8_t level[8], int bank); /* pad i+1 (Akai numbering: bottom row 1-4): 0 = up, 1-127 */
 void draw_knobs(const uint8_t pos[8], const uint8_t value[8], uint8_t rel);  /* pos 0-127 sets the pointer */

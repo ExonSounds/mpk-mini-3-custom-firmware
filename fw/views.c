@@ -7,13 +7,17 @@ static void clear(int x, int y, int w, int h) {
             if (i >= 0 && i < 128 && j >= 0 && j < 32) fb[(j >> 3) * 128 + i] &= ~(1u << (j & 7));
 }
 
-/* Ordered (4x4 Bayer) dither: v 1-127 lights 1/16 .. 16/16 of the area, so the fill shows how hard. */
+uint8_t views_pwm, views_phase;  /* PWM shading on; which of its 4 frames (main.c redraws every 5 ms then) */
+
+/* Grey for v 1-127 so the fill shows how hard. Dither: ordered (4x4 Bayer), 1/16 .. 16/16 of the area lit.
+ * PWM: the whole area lit in 1 .. 4 frames out of 4 (1-32 = 1, .. 97-127 = 4; the lightest touch still shows). */
 static void dither(int x, int y, int w, int h, int v) {
     static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    static const uint8_t pwm[4] = {0, 64, 32, 96};  /* spread, so half grey goes on-off-on-off */
     int lvl = (v * 16 + 126) / 127;
     for (int i = x; i < x + w; i++)
         for (int j = y; j < y + h; j++)
-            if (lvl > bayer[j & 3][i & 3]) px(i, j);
+            if (views_pwm ? v > pwm[views_phase & 3] : lvl > bayer[j & 3][i & 3]) px(i, j);
 }
 
 static void frame(int x, int y, int w, int h) {
