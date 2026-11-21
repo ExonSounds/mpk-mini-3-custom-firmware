@@ -8,7 +8,20 @@ import os
 import struct
 import time
 
+import numpy as np
+
+from games.visualiser import DITHER, pack
+from mpk3_remote import pressed
+
 LEFT_PAD, RIGHT_PAD = 7, 3           # PAD 8, PAD 4
+VIEW_PAD, ZOOM_PAD, SHADE_PAD = 0, 1, 2  # PAD 1: magnifier on/off, PAD 2: next zoom, PAD 3: dither / PWM
+SHADES = ("DITHER", "PWM", "DITHER+PWM")  # dot patterns (16 greys), flicker (5), or both (64)
+PWM_STEPS = (0.125, 0.625, 0.375, 0.875)  # one threshold per frame; this order spreads the on frames out
+# both: the 4x4 pattern picks one of 16 bands per pixel and the frame a quarter step inside it, so a shade is
+# exact to 1/64 while only the pixels whose band it falls in flicker (about 1 in 16), the rest stay steady
+COMBINED = [(np.round(DITHER * 16 - 0.5) * 4 + step + 0.5) / 64 for step in (0, 2, 1, 3)]
+PWM_FPS = 120                        # ask for as many frames as USB gives (~110): the faster, the steadier
+ZOOMS = (1, 2, 4)                    # screen pixels per keyboard pixel ... keyboard pixels per screen pixel
 DEAD, TOP_SPEED = 80, 1400           # joystick dead zone (of 1000) and pointer speed at full tilt, px per second
 EV_SYN, EV_KEY, EV_REL = 0, 1, 2
 BTN_LEFT, BTN_RIGHT, REL_X, REL_Y = 0x110, 0x111, 0, 1
@@ -66,15 +79,60 @@ def speed(v):
 class JoyMouse:
     TITLE = "Joystick Mouse"
     INFO = ("Use the keyboard as this computer's mouse: the joystick moves the pointer (further = faster), "
-            "the pads click. Hold a pad to drag.")
-    CONTROLS = "Joystick X/Y: move the pointer   PAD 8: left click   PAD 4: right click"
+            "the pads click. Hold a pad to drag. A magnifier shows the screen around the pointer.")
+    CONTROLS = ("Joystick X/Y: move the pointer   PAD 8: left click   PAD 4: right click   "
+                "PAD 1: magnifier on/off   PAD 2: zoom 1x / 2x / 4x   PAD 3: grey as dots, flicker (PWM) or both")
 
-    def __init__(self, mouse=None):
+    def __init__(self, mouse=None, tracker=None, grab=None):
         self.mouse = mouse if mouse is not None else VirtualMouse()
         self.fx = self.fy = 0.0                    # sub-pixel movement carried to the next frame
         self.joy, self.left, self.right = (0, 0), False, False
+        self.pads, self.magnify, self.zoom = (0,) * 8, False, 1     # zoom: index into ZOOMS
+        self.tracker, self.grab, self.shot, self.error = tracker, grab, None, None
+        self.note, self.note_t = "", 0.0
+        self.shade, self.frame = 0, 0                      # SHADES index; frame counts PWM steps
+
+    @property
+    def fps(self):                                 # play() reads this every frame
+        return PWM_FPS if self.magnify and self._flickers() else 60
+
+    def _flickers(self):
+        return SHADES[self.shade] != "DITHER"
+
+    def _magnifier(self):
+        """Follow the pointer and grab the screen around it (KWin: games/kwin.py, loaded only when needed)."""
+        if self.tracker is None and self.error is None:
+            try:
+                from games import kwin
+                self.tracker, self.grab = kwin.PointerTracker(), self.grab or kwin.capture
+            except (ImportError, OSError, ValueError) as e:
+                self.error = str(e)
+                return
+        pos = self.tracker.poll() if self.tracker else None
+        z = ZOOMS[self.zoom]
+        w, h = 128 // z, 32 // z
+        # flicker modes: one capture per 4-frame cycle leaves more time for frames - but a new zoom needs one now
+        mid_cycle = (self._flickers() and self.frame != len(PWM_STEPS) - 1 and self.shot is not None
+                     and self.shot.shape == (h, w))
+        if pos and not mid_cycle:
+            self.shot = self.grab(pos[0] - w // 2, pos[1] - h // 2, w, h)
 
     def step(self, ctrl, dt):
+        for p in pressed(self.pads, ctrl.pads):
+            if p == VIEW_PAD:
+                self.magnify = not self.magnify
+                self.note = f"MAGNIFIER {ZOOMS[self.zoom]}X" if self.magnify else "MOUSE"
+                self.note_t = 1.0
+            elif p == ZOOM_PAD:
+                self.zoom = (self.zoom + 1) % len(ZOOMS)
+                self.note, self.note_t = f"ZOOM {ZOOMS[self.zoom]}X", 1.0
+            elif p == SHADE_PAD:
+                self.shade = (self.shade + 1) % len(SHADES)
+                self.note, self.note_t = f"SHADES: {SHADES[self.shade]}", 1.0
+        self.pads = ctrl.pads
+        self.note_t = max(0.0, self.note_t - dt)
+        if self.magnify:
+            self._magnifier()
         self.joy = (ctrl.joy_x, ctrl.joy_y)
         self.fx += speed(ctrl.joy_x) * dt
         self.fy -= speed(ctrl.joy_y) * dt          # joystick up = pointer up (screen y grows downwards)
@@ -87,6 +145,32 @@ class JoyMouse:
         self.mouse.button(BTN_RIGHT, self.right)
 
     def render(self, scr):
+        if self.magnify:
+            self._render_magnifier(scr)
+        else:
+            self._render_mouse(scr)
+        if self.note_t:
+            scr.label(1, 1, self.note)
+
+    def _render_magnifier(self, scr):
+        if self.shot is None:
+            scr.clear()
+            scr.text(0, 0, "MAGNIFIER")
+            scr.text(0, 12, "NEEDS KDE PLASMA" if self.error else "WAITING FOR")
+            scr.text(0, 21, "(KWIN)" if self.error else "THE POINTER...")
+            return
+        z = 128 // self.shot.shape[1]              # from the picture itself, in case the zoom just changed
+        img = np.repeat(np.repeat(self.shot, z, axis=0), z, axis=1)[:32, :128]
+        lo, hi = float(img.min()), float(img.max())
+        img = (img - lo) / (hi - lo) if hi - lo > 0.04 else np.full_like(img, 0.5 if hi > 0.5 else 0.0)
+        if self._flickers():                       # a different threshold each frame
+            self.frame = (self.frame + 1) % len(PWM_STEPS)
+            pwm = SHADES[self.shade] == "PWM"
+            scr.fb[:] = pack(img > (PWM_STEPS[self.frame] if pwm else COMBINED[self.frame]))
+        else:
+            scr.fb[:] = pack(img > DITHER)         # contrast stretched, then dithered: text stays crisp
+
+    def _render_mouse(self, scr):
         scr.clear()
         scr.text(0, 0, "MOUSE")
         scr.text(0, 16, "4=R")
@@ -106,6 +190,8 @@ class JoyMouse:
 
     def close(self):
         self.mouse.close()
+        if self.tracker:
+            self.tracker.close()                   # takes the KWin script away again
 
     @classmethod
     def preview(cls, scr):

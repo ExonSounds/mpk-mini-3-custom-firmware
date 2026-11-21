@@ -105,7 +105,8 @@ class Screen:
 
 def play(game, remote, stop=None, on_frame=None, fps=60):
     """Run a game (step(controls, dt) and render(screen)) on the keyboard until `stop` is set (a threading.Event)
-    or the keyboard's remote screen stops (ConnectionError). on_frame(fb) sees every frame."""
+    or the keyboard's remote screen stops (ConnectionError). on_frame(fb) sees every frame. A game can ask for
+    another frame rate at any time with an `fps` attribute (e.g. for flicker shading); USB tops out near 110."""
     scr = Screen()
     ctrl, last = remote.show(scr.fb), time.monotonic()
     while not (stop and stop.is_set()):
@@ -115,8 +116,9 @@ def play(game, remote, stop=None, on_frame=None, fps=60):
         game.render(scr)
         if on_frame:
             on_frame(bytes(scr.fb))
-        time.sleep(max(0.0, 1 / fps - (time.monotonic() - now)))  # USB manages ~110 fps; 60 is plenty
         ctrl = remote.show(scr.fb)
+        # wait out the rest of the frame, counting the USB time too (60 is plenty for most games)
+        time.sleep(max(0.0, 1 / getattr(game, "fps", fps) - (time.monotonic() - now)))
 
 
 class Remote:

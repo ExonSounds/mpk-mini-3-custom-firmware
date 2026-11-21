@@ -15,9 +15,11 @@ from games.beats import GOOD, LEAD_IN, Beats
 from games.binterm import BinaryTerminal
 from games.cave import Cave
 from games.keycatch import ZONE, KeyCatch
-from games.mouse import BTN_LEFT, BTN_RIGHT, TOP_SPEED, JoyMouse, NoMouse, VirtualMouse, speed
+from games.kwin import PointerTracker, capture, to_gray
+from games.mouse import BTN_LEFT, BTN_RIGHT, PWM_FPS, TOP_SPEED, ZOOMS, JoyMouse, NoMouse, VirtualMouse, speed
 from games.race import CAR_X, CAR_Y, GRASS, LAPS, TARMAC, Race, build_world
-from games.visualiser import EDGES, N, RATE, Visualiser, note_name
+from games.sysmon import Stats, SysMon, human
+from games.visualiser import BAL_RANGE, EDGES, N, RATE, Visualiser, note_name, stereo
 import numpy as np
 from mpk3_cfg import PROG_MSG, image_pixel
 from mpk3_market import Arcade
@@ -192,7 +194,7 @@ class GamesTest(unittest.TestCase):
             s = Screen()
             e.preview(s)
             self.assertTrue(any(s.fb), e.key)
-            if e.key in ("binterm", "mouse", "visualiser"):  # open a terminal / mouse / recorder: tested below
+            if e.key in ("binterm", "mouse", "visualiser", "sysmon"):  # start helpers / devices: tested below
                 continue
             if e.kind == "computer":
                 g, scr = e.make(), Screen()
@@ -278,22 +280,163 @@ class JoyMouseTest(unittest.TestCase):
         g.render(s)
         self.assertTrue(any(s.fb))
 
+    def test_magnifier_follows_the_pointer(self):
+        class Tracker:
+            pos, closed = (1000, 500), False
+
+            def poll(self):
+                return self.pos
+
+            def close(self):
+                self.closed = True
+        grabs = []
+
+        def grab(x, y, w, h):                                  # left half white, right half black
+            grabs.append((x, y, w, h))
+            shot = np.zeros((h, w))
+            shot[:, :w // 2] = 1.0
+            return shot
+        t = Tracker()
+        g = JoyMouse(mouse=NoMouse(), tracker=t, grab=grab)
+        pad = lambda i: idle_controls(pads=tuple(80 if j == i else 0 for j in range(8)))  # noqa: E731
+        g.step(pad(0), 1 / 60)                                 # PAD 1: magnifier on (2x)
+        self.assertEqual((g.magnify, g.note, grabs[-1]), (True, "MAGNIFIER 2X", (968, 492, 64, 16)))
+        t.pos = (10, 20)                                       # the pointer moved (any mouse)
+        g.step(idle_controls(), 1 / 60)
+        self.assertEqual(grabs[-1], (-22, 12, 64, 16))
+        g.step(pad(1), 1 / 60)                                 # PAD 2: 4x, then 1x
+        g.step(idle_controls(), 1 / 60)
+        self.assertEqual(grabs[-1], (-6, 16, 32, 8))
+        g.step(pad(1), 1 / 60)
+        self.assertEqual((g.note, grabs[-1]), ("ZOOM 1X", (-54, 4, 128, 32)))
+        g.note_t = 0
+        s = Screen()
+        g.render(s)
+        self.assertTrue(all(image_pixel(s.fb, x, 16) for x in range(64)))       # white half lit
+        self.assertFalse(any(image_pixel(s.fb, x, 16) for x in range(64, 128)))
+        g.step(pad(0), 1 / 60)                                 # back to the mouse view; the pointer still moves
+        g.step(idle_controls(joy_x=1000), 0.1)
+        self.assertFalse(g.magnify)
+        self.assertTrue(g.mouse.moves)
+        g.close()
+        self.assertTrue(t.closed)
+
+    def test_pwm_shades_by_flicker(self):
+        class Tracker:
+            def poll(self):
+                return (500, 500)
+
+            def close(self):
+                pass
+
+        def grab(x, y, w, h):                                  # four grey blocks: 0, 0.3, 0.6, 1.0
+            return np.repeat(np.array([[0.0, 0.3, 0.6, 1.0]]), w // 4, axis=1).repeat(h, axis=0)
+        g = JoyMouse(mouse=NoMouse(), tracker=Tracker(), grab=grab)
+        pad = lambda i: idle_controls(pads=tuple(80 if j == i else 0 for j in range(8)))  # noqa: E731
+        g.step(pad(0), 1 / 60)                                 # magnifier on
+        g.step(idle_controls(), 1 / 60)
+        self.assertEqual(g.fps, 60)                            # dither: the usual frame rate
+        g.step(pad(2), 1 / 60)                                 # PAD 3: PWM
+        self.assertEqual((g.note, g.fps), ("SHADES: PWM", PWM_FPS))
+        g.note_t = 0
+        lit = [0] * 4
+        for _ in range(4):                                     # one full PWM cycle
+            s = Screen()
+            g.render(s)
+            for block in range(4):
+                lit[block] += image_pixel(s.fb, block * 32 + 16, 16)
+        self.assertEqual(lit, [0, 1, 2, 4])                    # darker blocks are on for fewer frames
+        g.step(pad(0), 1 / 60)                                 # leaving the magnifier: back to 60 fps
+        self.assertEqual(g.fps, 60)
+
+    def test_zoom_change_in_flicker_mode(self):            # was a crash: the old, smaller picture got reused
+        class Tracker:
+            def poll(self):
+                return (500, 500)
+
+            def close(self):
+                pass
+        g = JoyMouse(mouse=NoMouse(), tracker=Tracker(), grab=lambda x, y, w, h: np.random.rand(h, w))
+        pad = lambda i: idle_controls(pads=tuple(80 if j == i else 0 for j in range(8)))  # noqa: E731
+        g.step(pad(0), 1 / 60)
+        for shade in range(2):                                 # PWM, then dither + PWM
+            g.step(idle_controls(), 1 / 60)
+            g.step(pad(2), 1 / 60)
+            for _ in range(6):                                 # change the zoom at every point of the cycle
+                g.render(Screen())
+                g.step(idle_controls(), 1 / 60)
+                g.step(pad(1), 1 / 60)
+                self.assertEqual(g.shot.shape, (32 // ZOOMS[g.zoom], 128 // ZOOMS[g.zoom]))
+                g.render(Screen())
+
+    def test_dither_and_pwm_combined(self):
+        greys = [0.1, 0.33, 0.53, 0.8]
+
+        class Tracker:
+            def poll(self):
+                return (500, 500)
+
+            def close(self):
+                pass
+
+        for v in greys:
+            g = JoyMouse(mouse=NoMouse(), tracker=Tracker(), grab=lambda x, y, w, h, v=v: np.full((h, w), v))
+            g.zoom = 0                                         # 1x: the whole screen is the grey area
+            pad3 = idle_controls(pads=(0, 0, 80) + (0,) * 5)
+            g.step(idle_controls(pads=(80,) + (0,) * 7), 1 / 60)  # magnifier on
+            for _ in range(2):                                 # PAD 3 twice: PWM, then both
+                g.step(idle_controls(), 1 / 60)
+                g.step(pad3, 1 / 60)
+            self.assertEqual((g.note, g.fps), ("SHADES: DITHER+PWM", PWM_FPS))
+            g.shot = np.full((32, 128), v)                     # skip the contrast stretch: a flat area stays put
+            g.shot[0, 0], g.shot[0, 1] = 0.0, 1.0              # (one black and one white pixel fix the range)
+            g.note_t = 0
+            frames = []
+            for _ in range(4):
+                s = Screen()
+                g.render(s)
+                frames.append([[image_pixel(s.fb, x, y) for x in range(128)] for y in range(1, 32)])
+            f = np.array(frames, dtype=bool)
+            self.assertAlmostEqual(f.mean(), v, delta=1 / 64 + 0.005, msg=v)  # 64 levels: close to the grey
+            flicker = (f.any(0) & ~f.all(0)).mean()
+            self.assertLess(flicker, 0.08, v)                  # only about 1 pixel in 16 flickers
+
+    def test_kwin_pixels_to_brightness(self):
+        rgbx = bytes([255, 0, 0, 0, 0, 0, 255, 0]) + bytes(8)  # 2 x 2 at stride 16: red, blue / padding
+        meta = {"width": 2, "height": 1, "stride": 16, "format": 16}
+        self.assertTrue(np.allclose(to_gray(rgbx, meta), [[0.299, 0.114]]))
+        meta["format"] = 6                                     # ARGB32 premultiplied: bytes B, G, R, A
+        self.assertTrue(np.allclose(to_gray(rgbx, meta), [[0.114, 0.299]]))
+
+    @unittest.skipUnless(shutil.which("kwin_wayland") or os.environ.get("XDG_CURRENT_DESKTOP") == "KDE", "not KDE")
+    def test_kwin_pointer_and_capture(self):                   # reads the real pointer and a tiny screen area
+        t = PointerTracker()
+        end = time.monotonic() + 2
+        while not t.poll() and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertIsNotNone(t.pos)
+        self.assertEqual(capture(t.pos[0], t.pos[1], 32, 8).shape, (8, 32))
+        t.close()
+        self.assertFalse(os.path.exists(t.dir))
+
     @unittest.skipUnless(os.access("/dev/uinput", os.W_OK), "no access to /dev/uinput")
     def test_virtual_mouse_appears_and_goes(self):             # makes the device but never moves or clicks
+        def count():                                           # the market may have one of its own open
+            with open("/proc/bus/input/devices") as f:
+                return f.read().count("MPK mini 3 joystick mouse")
+        before = count()
         vm = VirtualMouse()
         time.sleep(0.2)
-        with open("/proc/bus/input/devices") as f:
-            self.assertIn("MPK mini 3 joystick mouse", f.read())
+        self.assertEqual(count(), before + 1)
         vm.close()
         time.sleep(0.2)
-        with open("/proc/bus/input/devices") as f:
-            self.assertNotIn("MPK mini 3 joystick mouse", f.read())
+        self.assertEqual(count(), before)
 
 
 class VisualiserTest(unittest.TestCase):
     def tone(self, freq, seconds=0.1, amp=0.5):
         t = np.arange(int(RATE * seconds)) / RATE
-        return (np.sin(2 * np.pi * freq * t) * amp * 32767).astype("<i2").tobytes()
+        return stereo(np.sin(2 * np.pi * freq * t) * amp)
 
     def test_spectrum_finds_the_tone(self):
         g = Visualiser(capture=False)
@@ -350,7 +493,7 @@ class VisualiserTest(unittest.TestCase):
             top = [image_pixel(s.fb, x, 0) for x in range(128)]
             peaks = sum(1 for x in range(1, 128) if top[x] and not top[x - 1])
             self.assertEqual(peaks, 2, freq)                   # exactly two cycles, whatever the pitch
-        g.feed((np.random.default_rng(2).normal(0, 0.3, N) * 32767).astype("<i2").tobytes())
+        g.feed(stereo(np.random.default_rng(2).normal(0, 0.3, N)))
         g.step(idle_controls(), 1 / 60)                        # (PAD 4 let go)
         self.assertIsNone(g.period)                            # noise: no pitch, the normal 23 ms view
         g.render(Screen())
@@ -373,7 +516,7 @@ class VisualiserTest(unittest.TestCase):
             s = Screen()
             g.render(s)
             self.assertTrue(any(s.fb), p)
-        g.feed(bytes(2 * N))
+        g.feed(bytes(4 * N))                                   # N stereo frames of silence
         for _ in range(150):                                   # 2.5 s of silence
             g.step(idle_controls(), 1 / 60)
         self.assertGreater(g.quiet, 2)
@@ -382,6 +525,41 @@ class VisualiserTest(unittest.TestCase):
         self.assertTrue(any(s.fb))                             # the "play some audio" hint
 
     @unittest.skipUnless(shutil.which("parec") or shutil.which("pw-record"), "no audio recorder")
+    def stereometer(self, left, right):
+        g = Visualiser(capture=False)
+        g.feed(stereo(left, right))
+        g.step(idle_controls(pads=(0,) * 4 + (80,) + (0,) * 3), 1 / 60)  # PAD 5
+        for _ in range(60):                                    # let the meters settle (1 s)
+            g.step(idle_controls(), 1 / 60)
+        def goniometer(v):                                    # its lit pixels below the L / R labels
+            s = Screen()
+            v.render(s)
+            return {(x, y) for x in range(64) for y in range(8, 32) if image_pixel(s.fb, x, y)}
+        guides = Visualiser(capture=False)
+        guides.mode = 3
+        return g, goniometer(g) - goniometer(guides)           # the plotted sound only
+
+    def test_stereometer(self):
+        t = np.arange(N) / RATE
+        sine, rng = 0.8 * np.sin(2 * np.pi * 300 * t), np.random.default_rng(3)
+        g, lit = self.stereometer(sine, sine)                  # mono: straight up the middle
+        self.assertEqual(g.mode, 3)
+        self.assertGreater(g.corr, 0.95)
+        self.assertLess(abs(g.bal), 0.5)
+        self.assertTrue(lit and all(abs(x - 32) <= 1 for x, y in lit), lit)
+        self.assertTrue(any(y < 12 for x, y in lit))           # a loud mono sine reaches up high
+        g, lit = self.stereometer(sine, -sine)                 # out of phase: flat along the bottom
+        self.assertLess(g.corr, -0.95)
+        self.assertTrue(any(x < 15 and y == 30 or y == 31 for x, y in lit))
+        g, lit = self.stereometer(sine, 0 * sine)              # hard left: the left diagonal, balance left
+        self.assertLess(g.bal, -BAL_RANGE)
+        self.assertTrue(lit and all(x <= 32 and abs((31 - y) - (32 - x)) <= 1 for x, y in lit), lit)  # left 45°
+        g, _ = self.stereometer(rng.normal(0, 0.2, N), rng.normal(0, 0.2, N))  # unrelated noise: wide, no corr.
+        self.assertLess(abs(g.corr), 0.15)
+        s = Screen()
+        g.render(s)
+        self.assertTrue(any(s.fb))
+
     def test_records_from_this_computer(self):
         g = Visualiser()
         time.sleep(0.5)
@@ -389,6 +567,74 @@ class VisualiserTest(unittest.TestCase):
         proc = g.proc
         g.close()
         self.assertIsNotNone(proc.returncode)                  # the recorder is gone again
+
+
+class SysMonTest(unittest.TestCase):
+    def fake_system(self, idle, net_rx):
+        """A tiny /proc and /sys: 2 CPU threads, one sensor chip of each kind, eth0 plus lo."""
+        root = self.root
+        files = {
+            "proc/stat": f"cpu  100 0 100 {idle} 0 0 0 0 0 0\ncpu0 50 0 50 {idle // 2} 0 0 0 0\n"
+                         f"cpu1 50 0 50 {idle // 2} 0 0 0 0\nintr 1 2 3\n",
+            "proc/meminfo": "MemTotal:       16000000 kB\nMemFree:  1 kB\nMemAvailable:    8000000 kB\n",
+            "proc/net/dev": "Inter-|\n face |\n    lo: 999999 0 0 0 0 0 0 0 999999 0\n"
+                            f"  eth0: {net_rx} 0 0 0 0 0 0 0 5000 0\n",
+            "proc/uptime": "93784.5 1000.0\n", "proc/loadavg": "1.25 0.9 0.5 1/100 42\n",
+            "sys/class/hwmon/hwmon0/name": "k10temp\n", "sys/class/hwmon/hwmon0/temp1_input": "45500\n",
+            "sys/class/hwmon/hwmon0/temp1_label": "Tctl\n",
+            "sys/class/hwmon/hwmon1/name": "nvme\n", "sys/class/hwmon/hwmon1/temp1_input": "30000\n",
+            "sys/class/hwmon/hwmon2/name": "nct6798\n", "sys/class/hwmon/hwmon2/temp1_input": "31000\n",
+            "sys/class/hwmon/hwmon2/temp1_label": "SYSTIN\n", "sys/class/hwmon/hwmon2/fan1_input": "1200\n",
+            "sys/class/hwmon/hwmon2/fan2_input": "0\n",
+            "sys/class/drm/card0/device/gpu_busy_percent": "40\n",
+        }
+        for rel, text in files.items():
+            os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+            with open(os.path.join(root, rel), "w") as f:
+                f.write(text)
+
+    def test_stats_from_proc_and_sys(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+        self.fake_system(idle=1000, net_rx=10000)
+        s = Stats(root=self.root, gpu=False)
+        s.sample(0)
+        self.fake_system(idle=1100, net_rx=10000 + 2 * 1024 * 1024)  # 100 more idle, 100 more busy jiffies
+        with open(os.path.join(self.root, "proc/stat")) as f:
+            stat = f.read().replace("cpu  100 0 100", "cpu  150 0 150")  # total busy +100, idle +100
+        with open(os.path.join(self.root, "proc/stat"), "w") as f:
+            f.write(stat)
+        s.sample(2.0)
+        self.assertAlmostEqual(s.cpu, 50.0)
+        self.assertEqual(len(s.cores), 2)
+        self.assertEqual(s.mem, (8000000 * 1024, 16000000 * 1024))
+        self.assertEqual(s.net, (1024 * 1024, 0.0))                     # lo ignored; 2 MiB in 2 s
+        self.assertEqual(s.temps, {"CPU": 45.5, "SSD": 30.0, "BRD": 31.0, "GPU": 0.0})
+        self.assertEqual(s.fans, [1200])                                # stopped fans left out
+        self.assertEqual(s.gpu[0], 40.0)                                # AMD busy percent
+        self.assertEqual(s.uptime(), ("1D 2:03", "1.25"))
+        self.assertEqual((human(812), human(1300), human(35 * 2 ** 20), human(1.5 * 2 ** 30)),
+                         ("812B", "1.3K", "35M", "1.5G"))
+
+    def test_pages_and_sampling(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+        self.fake_system(idle=1000, net_rx=0)
+        g = SysMon(stats=Stats(root=self.root, gpu=False))
+        for page in range(4):
+            pads = [0] * 8
+            pads[page] = 80
+            g.step(idle_controls(pads=tuple(pads)), 0.01)
+            g.step(idle_controls(), 0.01)
+            self.assertEqual(g.page, page)
+            s = Screen()
+            g.render(s)
+            self.assertTrue(any(s.fb), page)
+        before = len([h for h in g.history if h != (0.0, 0.0)])
+        for _ in range(20):                                             # 1 s: two more readings
+            g.step(idle_controls(), 0.05)
+        self.assertEqual(len([h for h in g.history if h != (0.0, 0.0)]) - before, 2)
+        g.close()
 
 
 class FakeRemote:

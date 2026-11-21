@@ -52,6 +52,8 @@ class Arcade:
             play(game, self._remote, self._stop, self.on_frame)
         except (ConnectionError, OSError, TimeoutError) as e:
             self.stopped_by = str(e)
+        except Exception as e:  # a bug in a game: say so in the market instead of only in the terminal
+            self.stopped_by = f"the game hit an error ({type(e).__name__}: {e})"
 
     def running(self):
         """False once a computer game ended by itself (PROG SELECT on the keyboard, unplugged)."""
@@ -122,7 +124,7 @@ class Market:
         grid.pack(padx=10, pady=6)
         self.buttons = {}
         for i, entry in enumerate(CATALOG):
-            self._card(grid, entry).grid(row=i // 4, column=i % 4, padx=6, pady=6, sticky="nsew")
+            self._card(grid, entry).grid(row=i // 5, column=i % 5, padx=6, pady=6, sticky="nsew")
 
         now = tk.Frame(root, bg=CARD, padx=12, pady=10)
         now.pack(fill="x", padx=16, pady=(4, 8))

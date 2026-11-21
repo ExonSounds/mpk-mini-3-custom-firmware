@@ -49,10 +49,16 @@ buttons and screen, or from a desktop GUI (`mpk3_gui.py`) that edits every setti
   - **Binary Typer** — opens a terminal window and types into it from the pads in binary (PAD 1 = 0, PAD 2 = 1,
     eight bits per character, PAD 3 deletes, PAD 4 Enter).
   - **Joystick Mouse** — the joystick moves this computer's mouse pointer, PAD 8 left-clicks, PAD 4 right-clicks
-    (a virtual mouse via `/dev/uinput`, which your user must be able to write).
+    (a virtual mouse via `/dev/uinput`, which your user must be able to write). PAD 1 opens a magnifier: the screen
+    around the pointer, live, following any mouse (KDE Plasma: a small KWin script reports the pointer, KWin's
+    ScreenShot2 grabs the area); PAD 2 zooms 1×/2×/4×; PAD 3 shades grey as dots, as PWM flicker (5 levels) or
+    both (64 levels, only ~1 pixel in 16 flickering).
   - **Audio Visualiser** — whatever this computer plays, on the keyboard's screen: spectrum (PAD 1), waveform with
-    0 dBFS at the edges (PAD 2), waterfall (PAD 3); PAD 4 toggles pitch follow (the waveform shows two cycles of
-    the detected note and names it); knob 1 sets sensitivity / zoom.
+    0 dBFS at the edges (PAD 2), waterfall (PAD 3), stereometer (PAD 5: goniometer, correlation and balance);
+    PAD 4 toggles pitch follow (the waveform shows two cycles of the detected note and names it); knob 1 sets
+    sensitivity / zoom.
+  - **System Monitor** — this computer's CPU and GPU load and temperatures, RAM, network, fans and uptime: overview
+    (PAD 1), CPU threads (PAD 2), a one-minute history (PAD 3), temperatures and fans (PAD 4).
   - **Fifths** — a RAM program that runs on the keyboard itself (`programs/demo.c`).
 
 Not done yet: saving more than one setup (presets), flashing from the GUI.
@@ -71,6 +77,8 @@ a different image layout and is not supported.
 - `clang` and `lld` (Arch: `sudo pacman -S clang lld`), `python3`, `curl`, `unzip`
 - For the GUI: Tk (Arch: `sudo pacman -S tk`)
 - For the Audio Visualiser: numpy and PipeWire or PulseAudio (`parec` or `pw-record`)
+- For the Joystick Mouse magnifier: KDE Plasma (Wayland) and PyGObject; System Monitor reads NVIDIA GPUs through
+  `nvidia-smi`, AMD ones through `/sys`
 - Permission to open the keyboard's USB HID port:
 
   ```bash
@@ -117,7 +125,7 @@ The game market, or one game straight from the terminal (needs `make -C programs
 
 ```bash
 ./mpk3_market.py                      # or double-click it in the file manager
-python3 -m games race                 # or cave | keycatch | beats | binterm | mouse | visualiser
+python3 -m games race                 # or cave | keycatch | beats | binterm | mouse | visualiser | sysmon
 ```
 
 A game is a class with `step(controls, dt)` and `render(screen)` in `games/`, listed in `games/__init__.py`
