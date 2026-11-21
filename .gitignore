@@ -13,3 +13,9 @@ __pycache__/
 programs/*.bin
 programs/*.elf
 programs/*.o
+# Emulator build output (flash state lives in ~/.local/share/mpk3-emu, outside the repo)
+emu/mpk3emu
+emu/*.o
+# AppImage build (emu/build_appimage.sh)
+build/
+*.AppImage

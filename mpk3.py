@@ -42,7 +42,25 @@ def parse_reply(buf, prog):
     return bytearray(body[:-1])
 
 
+def emulator_device(name):
+    """The emulator's (emu/) MIDI pty: $MPK3_MIDI if set, else $XDG_RUNTIME_DIR/mpk3-emu/midi when its `name`
+    file says `name` (the USB product string)."""
+    if os.environ.get("MPK3_MIDI"):
+        return os.environ["MPK3_MIDI"]
+    run = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "mpk3-emu")
+    try:
+        with open(os.path.join(run, "name")) as f:
+            if f.read().strip() == name and os.path.exists(os.path.join(run, "midi")):
+                return os.path.join(run, "midi")
+    except OSError:
+        pass
+    return None
+
+
 def find_device():
+    emu = emulator_device("MPK mini 3")
+    if emu:
+        return emu
     for path in sorted(glob.glob("/proc/asound/card*/midi0")):
         with open(path) as f:
             if f.readline().strip() == "MPK mini 3":

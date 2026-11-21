@@ -49,6 +49,9 @@ def data_packet(addr, seq, chunk):
 
 
 def find_hidraw():
+    emu = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "mpk3-emu", "hid")  # emulator (emu/) first
+    if os.path.exists(emu):
+        return emu, "emulator"
     for dev in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         with open(os.path.join(dev, "device", "uevent")) as f:
             uevent = f.read()

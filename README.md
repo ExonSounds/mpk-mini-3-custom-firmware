@@ -132,6 +132,22 @@ A game is a class with `step(controls, dt)` and `render(screen)` in `games/`, li
 (`games/cave.py` is a short example). Only one program can hold the keyboard's MIDI port at a time, so close the
 settings GUI while the market has something loaded.
 
+### Emulator
+
+No keyboard at hand? `emu/` runs the firmware images on an emulated chip with a front panel window, and the
+tools above work against it unchanged (details: [emu/README.md](emu/README.md)):
+
+```bash
+python3 mpk3_emu.py                   # custom firmware; `stock` runs Akai's (needs: sudo pacman -S unicorn python-unicorn)
+```
+
+**AppImage:** `emu/build_appimage.sh` packs the emulator, its front panel and the custom firmware into
+`build/MPK3-Emulator-x86_64.AppImage`, which runs without the repo or Unicorn installed (it needs `python3` with
+Tk). The firmware inside starts from a small boot stub written for this project instead of Akai's bootloader
+(`python3 mpk3_emu.py --stub-image OUT`), so the AppImage contains no Akai code. To run Akai's firmware, give it
+your own copy: `./MPK3-Emulator-x86_64.AppImage path/to/AT.bin`. The AppImage bundles the Unicorn engine
+(GPL-2.0-only), so the AppImage as a whole is distributed under GPL-2.0; its `NOTICE` and licence files are inside.
+
 ## Repository layout
 
 | Path | What |
@@ -145,6 +161,7 @@ settings GUI while the market has something loaded.
 | `mpk3_flash.py` | Flasher for the stock USB HID bootloader |
 | `mpk3_gui.py`, `mpk3_cfg.py` | Desktop GUI and command line for the custom firmware's settings (SysEx protocol in `fw/cfg.h`) |
 | `mpk3.py`, `mpk3_tui.py` | Read/write the 8 programs of the **stock** firmware over SysEx, with a terminal UI (backs up all programs first) |
+| `emu/`, `mpk3_emu.py` | Emulator: AT32F415 on Unicorn with peripheral and USB models, Tk front panel, launcher |
 | `firmware/NOTES.md` | Reverse-engineering notes: MCU, pin map, update protocol, image layout, hardware findings |
 | `firmware/get_stock_firmware.sh` | Fetches the stock firmware from Akai's download server (it is not in this repo) |
 
@@ -153,6 +170,7 @@ settings GUI while the market has something loaded.
 ```bash
 make -C fw check
 python3 -m unittest test_mpk3 test_mpk3_cfg test_mpk3_flash   # test_mpk3_flash needs the stock firmware first
+make -C emu check                                             # emulator (needs Unicorn)
 ```
 
 ## Third-party

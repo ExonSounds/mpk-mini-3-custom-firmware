@@ -11,7 +11,7 @@ import sys
 import time
 from dataclasses import dataclass
 
-from mpk3 import MPK
+from mpk3 import MPK, emulator_device
 
 HDR = bytes([0xF0, 0x7D, 0x4D, 0x4B])
 LAYOUT = 4  # fw/settings.h SETTINGS_LAYOUT
@@ -219,6 +219,9 @@ def line_points(x0, y0, x1, y1):
 
 
 def find_device():
+    emu = emulator_device("MPK mini 3 custom")
+    if emu:
+        return emu
     for path in sorted(glob.glob("/proc/asound/card*/midi0")):
         with open(path) as f:
             if f.readline().strip() == "MPK mini 3 custom":
@@ -311,7 +314,7 @@ class Device(MPK):
 
 
 def main(argv):
-    if not argv or argv[0] not in ("info", "get", "set", "save", "defaults", "run") or (argv[0] == "run") != (len(argv) == 2):
+    if not argv or argv[0] not in ("info", "get", "set", "save", "defaults", "run") or (argv[0] == "run" and len(argv) != 2):
         sys.exit(__doc__)
     d = Device()
     info = d.hello()

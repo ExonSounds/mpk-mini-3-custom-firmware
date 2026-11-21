@@ -1,6 +1,10 @@
+import os
+import tempfile
 import unittest
+from unittest import mock
 
-from mpk3 import FIELDS, PAYLOAD_LEN, parse_reply, write_msg
+import mpk3_cfg
+from mpk3 import FIELDS, PAYLOAD_LEN, find_device, parse_reply, write_msg
 
 # Real reply captured from an MPK mini 3 for program 1 ("Live").
 REPLY = bytes.fromhex(
@@ -21,6 +25,20 @@ def field(section, label):
 class Mpk3Test(unittest.TestCase):
     def setUp(self):
         self.p = parse_reply(REPLY, 1)
+
+    def test_find_device_prefers_the_emulator(self):
+        with tempfile.TemporaryDirectory() as run, mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": run}):
+            os.environ.pop("MPK3_MIDI", None)
+            os.mkdir(os.path.join(run, "mpk3-emu"))
+            midi = os.path.join(run, "mpk3-emu", "midi")
+            os.symlink("/dev/null", midi)
+            with open(os.path.join(run, "mpk3-emu", "name"), "w") as f:
+                f.write("MPK mini 3 custom\n")
+            self.assertEqual(mpk3_cfg.find_device(), midi)
+            with mock.patch("glob.glob", return_value=[]):  # stock tool: name doesn't match, no hardware either
+                self.assertRaises(FileNotFoundError, find_device)
+            os.environ["MPK3_MIDI"] = "/dev/x"
+            self.assertEqual((find_device(), mpk3_cfg.find_device()), ("/dev/x", "/dev/x"))
 
     def test_parse_ignores_noise_and_realtime_bytes(self):
         noisy = b"\x90\x24\x40" + REPLY[:20] + b"\xf8" + REPLY[20:]  # note-on before, clock inside

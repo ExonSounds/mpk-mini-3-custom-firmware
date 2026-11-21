@@ -31,7 +31,9 @@ ResetBits 0x0800C6EC, Write 0x0800C6F4, ReadInputData 0x0800C6DE), so STM32F1-st
 | USB | OTGFS, PA11/PA12 | |
 | SWD | PA13/PA14 | not used as GPIO; remap call 0x02000000 looks like "JTAG off, SWD on", so a debug probe should still work |
 
-Timers TMR1–TMR5 are set up (no timer output pins configured, so they're probably just ticks: scan, PWM, tempo/arp).
+Interrupts the stock app uses (found by running it in the emulator, `emu/`): SysTick at 50 kHz (one matrix row per
+tick, LED PWM step every 5th), TMR3 (IRQ 29) at 10 kHz (analog step, OLED, pads) and OTGFS (IRQ 67). TMR1/2/4/5
+are not set up; the references to them are StdPeriph library code.
 
 ## Input/LED mapping (from stock app code; keys, buttons, knobs, pads and joystick confirmed on hardware with fw/ test firmware, 2026-11-21)
 ### Key/button matrix (scan at 0x0800A3AC, consumer 0x0800A4A8)
@@ -119,7 +121,7 @@ Knob 1 / Pad 1 / joystick axes confirmed on hardware; whether wiper A/B is sin o
 | 20 | FULL LEVEL |
 | 21 | NOTE REPEAT |
 | 22, 23 | unknown/unused |
-LEDs 0, 1 and 8–15 get full PWM range; the rest are capped at brightness 4 (probably different LED types).
+LEDs 0, 1 and 8–15 get full PWM range; the button LEDs have a *minimum* of 4/32 (a dim backlight; on = 32/32).
 **The shift register outputs are active low: bit 0 = LED on.** Stock's set-brightness clears the bit for slots
 < brightness and sets it for the rest. LED 0 / 1 are the red and green halves of the PAD BANK light.
 
@@ -225,7 +227,12 @@ C2 packet layout:
 Each command is retried up to 3 times with a 3000 ms timeout (from the XML).
 No read-back command exists, so flash can't be dumped over USB (we don't need to: the stock image is above).
 
-## Open questions
-- Does the bootloader skip its own region (0x0000–0x9FFF), or does it really rewrite it? Until we know, custom
-  images must keep 0x0000–0x9FFF byte-identical to stock and change only the app area 0xA000–0x1FFEF.
-- How the running (non-update) firmware answers C4. Not tested: it might reboot into the bootloader.
+## Answers from running Akai's code in the emulator (`emu/`), not yet checked on hardware
+- The bootloader erases and rewrites 0x5000–0x1F7FF (including the boot copy at 0x5000–0x9FFF) and never touches
+  0x0000–0x4FFF or 0x1F800–0x1FFFF (where stored programs live). Custom images still keep 0x0000–0x9FFF stock.
+- The running (non-update) app answers C4 with `UI E4` (refused); update mode answers `UI F4 01 26`.
+- On first boot the app erases the option bytes (user system data) and writes RDP = 0xA5 (no read protection) and
+  data bytes 0/1 = 0x00, then leaves them alone. The stock bootloader reads the flash size at 0x1FFFF7E0 as a
+  32-bit word.
+- OLED: both firmwares set 64-row multiplex with flipped COM scan; the 32-row glass shows pages 4–7. Stock sends
+  512 bytes every 10 ms without resetting the page pointer, so its frames alternate between the halves.
